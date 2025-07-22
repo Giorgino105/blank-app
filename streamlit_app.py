@@ -5,7 +5,7 @@
 
 # Código principal (ejecutar en otra celda)
 
-  
+import openpyxl
 import streamlit as st
 import pandas as pd
 import io
