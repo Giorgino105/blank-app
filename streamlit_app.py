@@ -5,7 +5,7 @@
 
 # Código principal (ejecutar en otra celda)
 
-import openpyxl  
+  
 import streamlit as st
 import pandas as pd
 import io
@@ -19,7 +19,13 @@ import time
 # Configuración de autenticación
 VALID_PASSWORDS = {
     "JR": "admin",
-    "user1": "user123",  
+    "MEG": "admin",
+    "JM": "admin",
+    "JJJ": "admin",
+    "JAS": "admin",
+    "AM": "admin",
+    "RA": "admin",
+    "MS": "admin",  
     # Agrega más usuarios aquí
 }
 
