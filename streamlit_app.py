@@ -1,9 +1,5 @@
 
-#WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB
-#WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB
-#WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB-WEB
-
-# Código principal (ejecutar en otra celda)
+# Código principal 
 
 import openpyxl
 import streamlit as st
@@ -234,9 +230,9 @@ def filter_families_by_protocol(df, fam_limits, fam_protocols, selected_protocol
 
     return filtered_df, filtered_limits, compatible_families
 
-def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed):
+def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed):
     """Calcula los módulos necesarios para una zona específica"""
-    if di_needed <= 0 and do_needed <= 0 and iol_needed <= 0:
+    if di_needed <= 0 and do_needed <= 0 and iol_needed <= 0 and ai_needed <= 0 and ao_needed <= 0:
         return [], 0, None
 
     def calculate_module_priority(mod):
@@ -264,28 +260,52 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed):
         di_cap = mod['Entradas_DI']
         do_cap = mod['Salidas_DO']
         iol_cap = mod['IO_Link_Ports']
+        ai_cap = mod['Analog_In']
+        ao_cap = mod['Analog_Out']
 
-        if di_cap <= 0 and do_cap <= 0 and iol_cap <= 0:
+        if di_cap <= 0 and do_cap <= 0 and iol_cap <= 0 and ai_cap <= 0 and ao_cap <= 0:
             continue
 
-        if di_cap > 0 and do_cap > 0:  # Módulo mixto DI/DO
-            needed_for_di = ceil(di_needed / di_cap) if di_needed > 0 else 0
-            needed_for_do = ceil(do_needed / do_cap) if do_needed > 0 else 0
-            needed_mixed = max(needed_for_di, needed_for_do)
+        # Calcular cobertura para módulos con múltiples capacidades
+        capabilities = []
+        if di_cap > 0:
+            capabilities.append(('di', di_needed, di_cap))
+        if do_cap > 0:
+            capabilities.append(('do', do_needed, do_cap))
+        if ai_cap > 0:
+            capabilities.append(('ai', ai_needed, ai_cap))
+        if ao_cap > 0:
+            capabilities.append(('ao', ao_needed, ao_cap))
+
+        if len(capabilities) > 1:  # Módulo mixto
+            needed_quantities = []
+            for cap_type, needed, capacity in capabilities:
+                if needed > 0:
+                    needed_quantities.append(ceil(needed / capacity))
+                else:
+                    needed_quantities.append(0)
+            
+            needed_mixed = max(needed_quantities) if needed_quantities else 0
 
             if needed_mixed > 0:
                 di_covered = min(di_needed, needed_mixed * di_cap)
                 do_covered = min(do_needed, needed_mixed * do_cap)
+                ai_covered = min(ai_needed, needed_mixed * ai_cap)
+                ao_covered = min(ao_needed, needed_mixed * ao_cap)
 
                 remaining_di = max(0, di_needed - di_covered)
                 remaining_do = max(0, do_needed - do_covered)
                 remaining_iol = iol_needed
+                remaining_ai = max(0, ai_needed - ai_covered)
+                remaining_ao = max(0, ao_needed - ao_covered)
 
                 mixed_solutions.append({
                     'modules': [(mod, needed_mixed)],
                     'remaining_di': remaining_di,
                     'remaining_do': remaining_do,
                     'remaining_iol': remaining_iol,
+                    'remaining_ai': remaining_ai,
+                    'remaining_ao': remaining_ao,
                     'cost': mod['Precio'] * needed_mixed,
                     'count': needed_mixed
                 })
@@ -321,6 +341,26 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed):
             iol_mods = all_mods[all_mods['IO_Link_Ports'] > 0]
             for _, mod in iol_mods.iterrows():
                 needed = ceil(mix_sol['remaining_iol'] / mod['IO_Link_Ports'])
+                total_modules.append((mod, needed))
+                total_cost += mod['Precio'] * needed
+                total_count += needed
+                break
+
+        # Completar AI restantes
+        if mix_sol['remaining_ai'] > 0:
+            ai_mods = all_mods[all_mods['Analog_In'] > 0]
+            for _, mod in ai_mods.iterrows():
+                needed = ceil(mix_sol['remaining_ai'] / mod['Analog_In'])
+                total_modules.append((mod, needed))
+                total_cost += mod['Precio'] * needed
+                total_count += needed
+                break
+
+        # Completar AO restantes
+        if mix_sol['remaining_ao'] > 0:
+            ao_mods = all_mods[all_mods['Analog_Out'] > 0]
+            for _, mod in ao_mods.iterrows():
+                needed = ceil(mix_sol['remaining_ao'] / mod['Analog_Out'])
                 total_modules.append((mod, needed))
                 total_cost += mod['Precio'] * needed
                 total_count += needed
@@ -368,6 +408,26 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed):
             separate_cost += best_iol['Precio'] * needed
             separate_count += needed
 
+    # AI separados
+    if ai_needed > 0:
+        ai_mods = all_mods[all_mods['Analog_In'] > 0]
+        if not ai_mods.empty:
+            best_ai = ai_mods.iloc[0]
+            needed = ceil(ai_needed / best_ai['Analog_In'])
+            separate_modules.append((best_ai, needed))
+            separate_cost += best_ai['Precio'] * needed
+            separate_count += needed
+
+    # AO separados
+    if ao_needed > 0:
+        ao_mods = all_mods[all_mods['Analog_Out'] > 0]
+        if not ao_mods.empty:
+            best_ao = ao_mods.iloc[0]
+            needed = ceil(ao_needed / best_ao['Analog_Out'])
+            separate_modules.append((best_ao, needed))
+            separate_cost += best_ao['Precio'] * needed
+            separate_count += needed
+
     # Comparar solución separada con la mejor mixta
     if (separate_count < best_modules_count or
         (separate_count == best_modules_count and separate_cost < best_cost)):
@@ -382,12 +442,16 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed):
     total_di_covered = sum(mod['Entradas_DI'] * qty for mod, qty in best_solution)
     total_do_covered = sum(mod['Salidas_DO'] * qty for mod, qty in best_solution)
     total_iol_covered = sum(mod['IO_Link_Ports'] * qty for mod, qty in best_solution)
+    total_ai_covered = sum(mod['Analog_In'] * qty for mod, qty in best_solution)
+    total_ao_covered = sum(mod['Analog_Out'] * qty for mod, qty in best_solution)
 
     # Verificar que la solución cubre los requerimientos
     if (total_di_covered < di_needed or
         total_do_covered < do_needed or
-        total_iol_covered < iol_needed):
-        return [], 0, f"No se puede cubrir los requerimientos (DI: {total_di_covered}/{di_needed}, DO: {total_do_covered}/{do_needed}, IO-Link: {total_iol_covered}/{iol_needed})"
+        total_iol_covered < iol_needed or
+        total_ai_covered < ai_needed or
+        total_ao_covered < ao_needed):
+        return [], 0, f"No se puede cubrir los requerimientos (DI: {total_di_covered}/{di_needed}, DO: {total_do_covered}/{do_needed}, IO-Link: {total_iol_covered}/{iol_needed}, AI: {total_ai_covered}/{ai_needed}, AO: {total_ao_covered}/{ao_needed})"
 
     return best_solution, best_modules_count, None
 
@@ -422,11 +486,14 @@ def enumerate_solutions(req, df, fam_limits):
             di_needed = zone['digital_inputs']
             do_needed = zone['digital_outputs']
             iol_needed = zone['io_link_sensors']
+            ai_needed = zone['analog_inputs']  # NUEVO
+            ao_needed = zone['analog_outputs']  # NUEVO
 
             # Calcular módulos para esta zona
             zone_solution, zone_modules_count, zone_error = calculate_zone_modules(
-                fam_df, di_needed, do_needed, iol_needed
+                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed  # NUEVOS PARÁMETROS
             )
+            
 
             if zone_error:
                 rejection_reason = f"Zona {zone_id}: {zone_error}"
@@ -524,6 +591,8 @@ def generate_solution_report(req, solution, protocol):
         report_lines.append(f"    - Entradas digitales: {zone['digital_inputs']}")
         report_lines.append(f"    - Salidas digitales: {zone['digital_outputs']}")
         report_lines.append(f"    - Sensores IO-Link: {zone['io_link_sensors']}")
+        report_lines.append(f"    - Entradas analógicas: {zone['analog_inputs']}")  # NUEVO
+        report_lines.append(f"    - Salidas analógicas: {zone['analog_outputs']}")
 
     report_lines.append("")
 
@@ -644,7 +713,7 @@ def main():
 
             if zones_equal:
                 st.subheader("Configuración para todas las zonas (iguales)")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4, col5 = st.columns(5)  # CAMBIAR DE 3 A 5 COLUMNAS
 
                 with col1:
                     di = st.number_input("Entradas digitales:", min_value=0, value=0, key="di_all")
@@ -652,13 +721,19 @@ def main():
                     do = st.number_input("Salidas digitales:", min_value=0, value=0, key="do_all")
                 with col3:
                     iol = st.number_input("Sensores IO-Link:", min_value=0, value=0, key="iol_all")
+                with col4:
+                    ai = st.number_input("Entradas analógicas:", min_value=0, value=0, key="ai_all")  # NUEVO
+                with col5:
+                    ao = st.number_input("Salidas analógicas:", min_value=0, value=0, key="ao_all")  # NUEVO
 
                 for i in range(num_zones):
                     zones.append({
                         'zone_id': i + 1,
                         'digital_inputs': di,
                         'digital_outputs': do,
-                        'io_link_sensors': iol
+                        'io_link_sensors': iol,
+                        'analog_inputs': ai,  # NUEVO
+                        'analog_outputs': ao   # NUEVO
                     })
 
             else:
@@ -666,7 +741,7 @@ def main():
 
                 for i in range(num_zones):
                     st.write(f"**Zona {i+1}**")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4, col5 = st.columns(5)  # CAMBIAR DE 3 A 5 COLUMNAS
 
                     with col1:
                         di = st.number_input("DI:", min_value=0, value=0, key=f"di_{i}")
@@ -674,16 +749,22 @@ def main():
                         do = st.number_input("DO:", min_value=0, value=0, key=f"do_{i}")
                     with col3:
                         iol = st.number_input("IO-Link:", min_value=0, value=0, key=f"iol_{i}")
+                    with col4:
+                        ai = st.number_input("AI:", min_value=0, value=0, key=f"ai_{i}")  # NUEVO
+                    with col5:
+                        ao = st.number_input("AO:", min_value=0, value=0, key=f"ao_{i}")  # NUEVO
 
                     zones.append({
                         'zone_id': i + 1,
                         'digital_inputs': di,
                         'digital_outputs': do,
-                        'io_link_sensors': iol
+                        'io_link_sensors': iol,
+                        'analog_inputs': ai,   # NUEVO
+                        'analog_outputs': ao   # NUEVO
                     })
 
             # Parámetros adicionales
-            st.header("4. Parámetros Adicionales")
+                st.header("4. Parámetros Adicionales")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -705,10 +786,12 @@ def main():
                 "total_digital_inputs": sum(zone['digital_inputs'] for zone in zones),
                 "total_digital_outputs": sum(zone['digital_outputs'] for zone in zones),
                 "total_io_link_sensors": sum(zone['io_link_sensors'] for zone in zones),
+                "total_analog_inputs": sum(zone['analog_inputs'] for zone in zones),    # NUEVO
+                "total_analog_outputs": sum(zone['analog_outputs'] for zone in zones),  # NUEVO
             }
 
-            req["total_inputs"] = req["total_digital_inputs"] + req["total_io_link_sensors"]
-            req["total_outputs"] = req["total_digital_outputs"]
+            req["total_inputs"] = req["total_digital_inputs"] + req["total_io_link_sensors"] + req["total_analog_inputs"]  # MODIFICAR
+            req["total_outputs"] = req["total_digital_outputs"] + req["total_analog_outputs"]  # MODIFICAR
 
             # Mostrar resumen
             st.header("5. Resumen de Configuración")
@@ -727,6 +810,9 @@ def main():
                 st.write(f"- Entradas digitales: {req['total_digital_inputs']}")
                 st.write(f"- Salidas digitales: {req['total_digital_outputs']}")
                 st.write(f"- Sensores IO-Link: {req['total_io_link_sensors']}")
+                st.write(f"- Entradas analógicas: {req['total_analog_inputs']}")  # NUEVO
+                st.write(f"- Salidas analógicas: {req['total_analog_outputs']}")  # NUEVO
+
 
             # Detalles por zona si hay más de una
             if req['num_zones'] > 1:
@@ -734,11 +820,13 @@ def main():
                 zone_data = []
                 for zone in zones:
                     zone_data.append({
-                        "Zona": zone['zone_id'],
-                        "DI": zone['digital_inputs'],
-                        "DO": zone['digital_outputs'],
-                        "IO-Link": zone['io_link_sensors']
-                    })
+                    "Zona": zone['zone_id'],
+                    "DI": zone['digital_inputs'],
+                    "DO": zone['digital_outputs'],
+                    "IO-Link": zone['io_link_sensors'],
+                    "AI": zone['analog_inputs'],    # NUEVO
+                    "AO": zone['analog_outputs']    # NUEVO
+                })
                 st.dataframe(pd.DataFrame(zone_data), hide_index=True)
 
             # Botón para calcular
