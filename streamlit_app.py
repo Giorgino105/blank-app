@@ -817,7 +817,7 @@ def main():
     # Ejecutar rerun fuera del callback del botón
     if st.session_state.logout_triggered:
         st.session_state.logout_triggered = False
-        st.experimental_rerun()
+       
 
 
 
