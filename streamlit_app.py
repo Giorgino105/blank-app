@@ -1079,7 +1079,7 @@ def login():
     usuario = st.text_input("Usuario")
     contraseña = st.text_input("Contraseña", type="password")
     if st.button("Iniciar sesión", key="login"):
-        if usuario == "admin" and contraseña == "1234":
+        if usuario == "PE" and contraseña == "admin":
             st.session_state.authenticated = True
             st.session_state.current_user = usuario
             st.experimental_rerun()
