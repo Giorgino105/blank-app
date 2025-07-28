@@ -477,34 +477,58 @@ def enumerate_solutions(req, df, fam_limits):
             base_price = base["Precio"]
             base_ref = base["Referencia"]
 
+        # Verificar si hay módulos wireless en alguna zona
+        has_wireless_zones = any(
+            any(mod['Wireless'] for mod, qty in calculate_zone_modules(
+                fam_df, zone['digital_inputs'], zone['digital_outputs'], 
+                zone['io_link_sensors'], zone['analog_inputs'], zone['analog_outputs']
+            )[0] if calculate_zone_modules(
+                fam_df, zone['digital_inputs'], zone['digital_outputs'], 
+                zone['io_link_sensors'], zone['analog_inputs'], zone['analog_outputs']
+            )[2] is None else [])
+            for zone in req['zones']
+        )
+
         # Calcular módulos necesarios para cada zona
         zone_modules = []
         total_modules_needed = 0
+        wireless_modules = []  # Para almacenar módulos wireless de todas las zonas
 
         for zone in req['zones']:
             zone_id = zone['zone_id']
             di_needed = zone['digital_inputs']
             do_needed = zone['digital_outputs']
             iol_needed = zone['io_link_sensors']
-            ai_needed = zone['analog_inputs']  # NUEVO
-            ao_needed = zone['analog_outputs']  # NUEVO
+            ai_needed = zone['analog_inputs']
+            ao_needed = zone['analog_outputs']
 
             # Calcular módulos para esta zona
             zone_solution, zone_modules_count, zone_error = calculate_zone_modules(
-                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed  # NUEVOS PARÁMETROS
+                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed
             )
-            
 
             if zone_error:
                 rejection_reason = f"Zona {zone_id}: {zone_error}"
                 break
 
+            # Separar módulos wireless de los normales
+            zone_normal_modules = []
+            zone_wireless_modules = []
+            
+            for mod, qty in zone_solution:
+                if mod['Wireless']:
+                    zone_wireless_modules.append((mod, qty, zone_id))
+                    wireless_modules.append((mod, qty, zone_id))
+                else:
+                    zone_normal_modules.append((mod, qty))
+
             zone_modules.append({
                 'zone_id': zone_id,
-                'modules': zone_solution,
-                'modules_count': zone_modules_count
+                'modules': zone_normal_modules,
+                'wireless_modules': zone_wireless_modules,
+                'modules_count': len(zone_normal_modules)  # Solo contar módulos no wireless
             })
-            total_modules_needed += zone_modules_count
+            total_modules_needed += len(zone_normal_modules)
 
         if rejection_reason:
             rejected_families.append({
@@ -514,6 +538,12 @@ def enumerate_solutions(req, df, fam_limits):
                 "Limite_familia": max_mods
             })
             continue
+
+        # Para wireless: agregar una cabecera maestra si hay módulos wireless
+        wireless_master_modules = 0
+        if wireless_modules:
+            wireless_master_modules = 1  # Una sola cabecera maestra para todos los wireless
+            total_modules_needed += wireless_master_modules
 
         # Verificar si excede el límite total de módulos
         if total_modules_needed > max_mods:
@@ -527,10 +557,23 @@ def enumerate_solutions(req, df, fam_limits):
             continue
 
         # Calcular precio total y componentes
-        price = base_price
-        components = [(base_ref, 1)]
+        # Para familias normales: una cabecera por zona
+        # Para wireless: una sola cabecera maestra
+        if wireless_modules:
+            # Configuración wireless: una cabecera maestra + pastillas por zona
+            price = base_price
+            components = [(base_ref, 1)]
+            wireless_master_ref = f"{fam}-WIRELESS-MASTER"
+            wireless_master_price = 300.0
+            components.append((wireless_master_ref, 1))
+            price += wireless_master_price
+        else:
+            # Configuración normal: una cabecera por zona
+            num_headers_needed = req['num_zones']
+            price = base_price * num_headers_needed
+            components = [(base_ref, num_headers_needed)]
 
-        # Agregar módulos de todas las zonas
+        # Agregar módulos normales de todas las zonas
         module_totals = {}
 
         for zone_data in zone_modules:
@@ -544,8 +587,28 @@ def enumerate_solutions(req, df, fam_limits):
                         'quantity': qty
                     }
 
-        # Agregar al precio y componentes
+        # Agregar módulos wireless (pastillas) - estos van separados por zona
+        wireless_components = {}
+        for mod, qty, zone_id in wireless_modules:
+            ref = f"{mod['Referencia']}-PASTILLA-Z{zone_id}"
+            if ref in wireless_components:
+                wireless_components[ref]['quantity'] += qty
+            else:
+                wireless_components[ref] = {
+                    'module': mod,
+                    'quantity': qty,
+                    'zone_id': zone_id
+                }
+
+        # Agregar al precio y componentes (módulos normales)
         for ref, data in module_totals.items():
+            mod = data['module']
+            qty = data['quantity']
+            components.append((ref, qty))
+            price += mod['Precio'] * qty
+
+        # Agregar al precio y componentes (módulos wireless)
+        for ref, data in wireless_components.items():
             mod = data['module']
             qty = data['quantity']
             components.append((ref, qty))
@@ -556,7 +619,9 @@ def enumerate_solutions(req, df, fam_limits):
             "Precio_total": round(price, 2),
             "Componentes": components,
             "Modulos_totales": total_modules_needed,
-            "Distribucion_zonas": zone_modules
+            "Distribucion_zonas": zone_modules,
+            "Wireless_modules": wireless_components,
+            "Has_wireless": len(wireless_modules) > 0
         })
 
     solutions.sort(key=lambda s: s["Precio_total"])
