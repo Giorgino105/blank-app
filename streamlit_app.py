@@ -516,9 +516,9 @@ def enumerate_solutions(req, df, fam_limits):
                 'zone_id': zone_id,
                 'modules': zone_normal_modules,
                 'wireless_modules': zone_wireless_modules,
-                'modules_count': len(zone_normal_modules)  # Solo contar módulos no wireless
+                'modules_count': sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades, no contar tipos
             })
-            total_modules_needed += len(zone_normal_modules)
+            total_modules_needed += sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades
 
         if rejection_reason:
             rejected_families.append({
@@ -549,15 +549,13 @@ def enumerate_solutions(req, df, fam_limits):
 
         # Calcular precio total y componentes
         # Para familias normales: una cabecera por zona
-        # Para wireless: una sola cabecera maestra
+        # Para wireless: solo una cabecera maestra (no CPU-BASE adicional)
         if has_wireless_zones:
-            # Configuración wireless: una cabecera maestra + pastillas por zona
-            price = base_price
-            components = [(base_ref, 1)]
+            # Configuración wireless: solo cabecera maestra
             wireless_master_ref = f"{fam}-WIRELESS-MASTER"
             wireless_master_price = 300.0
-            components.append((wireless_master_ref, 1))
-            price += wireless_master_price
+            price = wireless_master_price
+            components = [(wireless_master_ref, 1)]
         else:
             # Configuración normal: una cabecera por zona
             num_headers_needed = req['num_zones']
