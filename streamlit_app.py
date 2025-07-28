@@ -27,7 +27,7 @@ VALID_PASSWORDS = {
 }
 
 def check_password():
-    st.image("https://www.bing.com/images/search?view=detailV2&ccid=IBQXSwbP&id=D30B266C5F9B9764509D071C88D12557509BD5C7&thid=OIP.IBQXSwbP5rUCSZt89xzzAgHaCX&mediaurl=https%3a%2f%2flogodix.com%2flogo%2f1579138.png&cdnurl=https%3a%2f%2fth.bing.com%2fth%2fid%2fR.2014174b06cfe6b502499b7cf71cf302%3frik%3dx9WbUFcl0YgcBw%26pid%3dImgRaw%26r%3d0&exph=638&expw=2000&q=logo+smc&simid=608015427253915223&FORM=IRPRST&ck=F7AC113DF86537EBB10CBAC75B6431B5&selectedIndex=0&itb=1&ajaxhist=0&ajaxserp=0", width=200)
+    st.image("https://images.seeklogo.com/logo-png/12/1/smc-logo-png_seeklogo-128243.png", width=200)
 
     """Manejo de autenticación"""
     def password_entered():
