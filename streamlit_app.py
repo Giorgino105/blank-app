@@ -1,6 +1,7 @@
 
 # Código principal 
 
+import os
 import openpyxl
 import streamlit as st
 import pandas as pd
@@ -913,7 +914,23 @@ def generate_solution_report(req, solution, protocol):
     report_lines.append("=" * 60)
 
     return "\n".join(report_lines)
+def update_counter(file_path="counter.txt"):
+    """Lee, incrementa y guarda el contador en un archivo."""
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            try:
+                count = int(f.read().strip())
+            except ValueError:
+                count = 0
+    else:
+        count = 0
 
+    count += 1
+
+    with open(file_path, "w") as f:
+        f.write(str(count))
+
+    return count
 def main():
     if not check_password():
         return
@@ -1189,7 +1206,9 @@ def main():
 
     else:
         st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
-
+visit_count = update_counter()
+st.markdown("---")
+st.info(f"🔁 Esta aplicación se ha usado **{visit_count}** veces (total acumulado).")
 # Ejecutar la aplicación
 if __name__ == "__main__":
     main()
