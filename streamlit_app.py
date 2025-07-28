@@ -773,6 +773,7 @@ def update_counter(file_path="counter.txt"):
     return count
 
 
+
 def main():
     # Inicialización de variables de sesión
     if "authenticated" not in st.session_state:
@@ -785,31 +786,33 @@ def main():
     # Si no está autenticado, mostrar login
     if not st.session_state.authenticated:
         login()
-    else:
-        # Menú lateral
-        menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
+        return  # Importante: detener aquí para que no se ejecute el resto
 
-        st.sidebar.markdown("---")
-        st.sidebar.markdown(f"Conectado como: {st.session_state.current_user}")
+    # Menú lateral
+    menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
 
-        # Botón de cerrar sesión
-        if st.sidebar.button("🔓 Cerrar sesión", key="logout"):
-            st.session_state.authenticated = False
-            st.session_state.current_user = ""
-            st.session_state.logout_triggered = True
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"Conectado como: {st.session_state.current_user}")
 
-        # Mostrar la sección seleccionada
-        if menu == "Configurador":
-            mostrar_configurador()
-        elif menu == "Conversor":
-            mostrar_conversor()
-        elif menu == "Tiempo de Ciclo":
-            mostrar_tiempo_ciclo()
+    # Botón de cerrar sesión
+    if st.sidebar.button("🔓 Cerrar sesión", key="logout"):
+        st.session_state.authenticated = False
+        st.session_state.current_user = ""
+        st.session_state.logout_triggered = True
 
-        # Ejecutar rerun fuera del callback del botón
-        if st.session_state.logout_triggered:
-            st.session_state.logout_triggered = False
-            st.experimental_rerun()
+    # Mostrar la sección seleccionada
+    if menu == "Configurador":
+        mostrar_configurador()
+    elif menu == "Conversor":
+        mostrar_conversor()
+    elif menu == "Tiempo de Ciclo":
+        mostrar_tiempo_ciclo()
+
+    # Ejecutar rerun fuera del callback del botón
+    if st.session_state.logout_triggered:
+        st.session_state.logout_triggered = False
+        st.experimental_rerun()
+
 
 
     
@@ -1095,15 +1098,22 @@ def mostrar_configurador():
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+
 def login():
+    st.title("Iniciar sesión")
     username = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
-    if st.button("Iniciar sesión"):
+
+    if st.button("Entrar"):
+        # Aquí puedes validar contra una base de datos o lista de usuarios
         if username == "PE" and password == "admin":
-            st.session_state.logged_in = True
+            st.session_state.authenticated = True
+            st.session_state.current_user = username
             st.success("Inicio de sesión exitoso")
+            st.experimental_rerun()
         else:
             st.error("Credenciales incorrectas")
+
 
 
 def mostrar_conversor():
