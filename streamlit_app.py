@@ -26,41 +26,44 @@ VALID_PASSWORDS = {
     # Agrega más usuarios aquí
 }
 
+import streamlit as st
+
 def check_password():
-    st.image("https://images.seeklogo.com/logo-png/12/1/smc-logo-png_seeklogo-128243.png", width=300)
+    # Crear dos columnas: una para la imagen y otra para el contenido
+    col1, col2 = st.columns([1, 2])  # Puedes ajustar la proporción según lo necesites
 
-    """Manejo de autenticación"""
-    def password_entered():
-        username = st.session_state["username"]
-        password = st.session_state["password"]
-        
-        if username in VALID_PASSWORDS and VALID_PASSWORDS[username] == password:
-            st.session_state["password_correct"] = True
-            st.session_state["current_user"] = username
-            del st.session_state["password"]
+    with col1:
+        st.image("https://images.seeklogo.com/logo-png/12/1/smc-logo-png_seeklogo-128243.png", width=200)
 
-            # ⬇️ Solo cuenta el login si aún no se ha contado en esta sesión
-            if 'has_counted_login' not in st.session_state:
-                st.session_state['has_counted_login'] = True
-                visitas = update_counter()
-                st.toast(f"✅ Bienvenido {username}. Esta app se ha usado {visitas} veces.")
+    with col2:
+        def password_entered():
+            username = st.session_state["username"]
+            password = st.session_state["password"]
+
+            if username in VALID_PASSWORDS and VALID_PASSWORDS[username] == password:
+                st.session_state["password_correct"] = True
+                st.session_state["current_user"] = username
+                del st.session_state["password"]
+
+                if 'has_counted_login' not in st.session_state:
+                    st.session_state['has_counted_login'] = True
+                    visitas = update_counter()
+                    st.toast(f"✅ Bienvenido {username}. Esta app se ha usado {visitas} veces.")
+            else:
+                st.session_state["password_correct"] = False
+        if "password_correct" not in st.session_state:
+            st.title("🔐 Acceso al Calculador SMC")
+            st.text_input("Usuario", key="username")
+            st.text_input("Contraseña", type="password", key="password", on_change=password_entered)
+            return False
+        elif not st.session_state["password_correct"]:
+            st.title("🔐 Acceso al Calculador SMC")
+            st.text_input("Usuario", key="username")
+            st.text_input("Contraseña", type="password", key="password", on_change=password_entered)
+            st.error("Usuario o contraseña incorrectos")
+            return False
         else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        st.title("🔐 Acceso al Calculador SMC")
-        st.text_input("Usuario", key="username")
-        st.text_input("Contraseña", type="password", key="password", on_change=password_entered)
-        return False
-    elif not st.session_state["password_correct"]:
-        st.title("🔐 Acceso al Calculador SMC")
-        st.text_input("Usuario", key="username")
-        st.text_input("Contraseña", type="password", key="password", on_change=password_entered)
-        st.error("Usuario o contraseña incorrectos")
-        return False
-    else:
-        return True
-
+            return True
 
 # [Resto del código sin cambios - todas las funciones permanecen igual]
 @st.cache_data
