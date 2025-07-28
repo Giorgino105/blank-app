@@ -27,6 +27,8 @@ VALID_PASSWORDS = {
 }
 
 def check_password():
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/SMC_Logo.svg/2560px-SMC_Logo.svg.png", width=200)
+
     """Manejo de autenticación"""
     def password_entered():
         username = st.session_state["username"]
