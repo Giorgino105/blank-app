@@ -802,8 +802,8 @@ def mostrar_configurador():
                 del st.session_state[key]
             st.rerun()
 
-    st.title("🔧 Calculador de Soluciones SMC")
-    st.markdown("**Calculador de módulos SMC con configuración por zonas**")
+    st.title("🔧 Calculador de Soluciones SMC 2")
+    st.markdown("**Calculador de módulos SMC con configuración por zonas 2**")
 
         # Subida de archivos
     st.header("1. Cargar Archivos de Configuración")
