@@ -633,6 +633,10 @@ def generate_solution_report(req, solution, protocol):
     report_lines.append(f"  Protocolo: {protocol}")
     report_lines.append(f"  Precio Total: {solution['Precio_total']}€")
     report_lines.append(f"  Módulos Totales: {solution['Modulos_totales']}")
+    if solution.get('Has_wireless', False):
+        report_lines.append(f"  Configuración Wireless: SÍ (1 cabecera maestra)")
+    else:
+        report_lines.append(f"  Cabeceras necesarias: {req['num_zones']} (una por zona)")
     report_lines.append("")
 
     # Configuración de zonas
@@ -647,26 +651,53 @@ def generate_solution_report(req, solution, protocol):
         report_lines.append(f"    - Entradas digitales: {zone['digital_inputs']}")
         report_lines.append(f"    - Salidas digitales: {zone['digital_outputs']}")
         report_lines.append(f"    - Sensores IO-Link: {zone['io_link_sensors']}")
-        report_lines.append(f"    - Entradas analógicas: {zone['analog_inputs']}")  # NUEVO
+        report_lines.append(f"    - Entradas analógicas: {zone['analog_inputs']}")
         report_lines.append(f"    - Salidas analógicas: {zone['analog_outputs']}")
 
     report_lines.append("")
 
     # Lista de componentes
     report_lines.append("LISTA DE COMPONENTES:")
-    total_price = 0
+    
+    # Separar componentes por tipo
+    base_components = []
+    normal_components = []
+    wireless_components = []
+    
     for ref, qty in solution['Componentes']:
         if ref.endswith("-CPU-BASE"):
-            price = 200.0
+            base_components.append((ref, qty, 200.0))
+        elif "WIRELESS-MASTER" in ref:
+            base_components.append((ref, qty, 300.0))
+        elif "PASTILLA" in ref:
+            wireless_components.append((ref, qty, 0.0))  # Precio se calculará después
         else:
-            price = 0.0
+            normal_components.append((ref, qty, 0.0))  # Precio se calculará después
 
+    # Mostrar componentes base
+    report_lines.append("  COMPONENTES BASE:")
+    for ref, qty, price in base_components:
         subtotal = price * qty
-        total_price += subtotal
-        report_lines.append(f"  {ref:<30} x{qty:>3} = {subtotal:>8.2f}€")
+        report_lines.append(f"    {ref:<28} x{qty:>3} = {subtotal:>8.2f}€")
+
+    # Mostrar módulos normales
+    if normal_components:
+        report_lines.append("  MÓDULOS NORMALES:")
+        for ref, qty, _ in normal_components:
+            # Aquí deberías obtener el precio real del módulo
+            subtotal = 0.0  # Calcular precio real
+            report_lines.append(f"    {ref:<28} x{qty:>3} = {subtotal:>8.2f}€")
+
+    # Mostrar módulos wireless
+    if wireless_components:
+        report_lines.append("  PASTILLAS WIRELESS:")
+        for ref, qty, _ in wireless_components:
+            # Aquí deberías obtener el precio real del módulo
+            subtotal = 0.0  # Calcular precio real
+            report_lines.append(f"    {ref:<28} x{qty:>3} = {subtotal:>8.2f}€")
 
     report_lines.append("-" * 50)
-    report_lines.append(f"{'TOTAL:':<37} {total_price:>8.2f}€")
+    report_lines.append(f"{'TOTAL:':<37} {solution['Precio_total']:>8.2f}€")
     report_lines.append("")
 
     # Distribución por zonas
@@ -675,12 +706,25 @@ def generate_solution_report(req, solution, protocol):
         for zone_data in solution['Distribucion_zonas']:
             zone_id = zone_data['zone_id']
             zone_modules = zone_data['modules']
+            zone_wireless = zone_data.get('wireless_modules', [])
             zone_count = zone_data['modules_count']
 
-            report_lines.append(f"  Zona {zone_id} ({zone_count} módulos):")
+            report_lines.append(f"  Zona {zone_id} ({zone_count} módulos normales):")
             for mod, qty in zone_modules:
                 report_lines.append(f"    - {mod['Referencia']} x{qty}")
+            
+            if zone_wireless:
+                report_lines.append(f"    Pastillas wireless:")
+                for mod, qty, _ in zone_wireless:
+                    report_lines.append(f"      - {mod['Referencia']} x{qty} (pastilla)")
 
+        report_lines.append("")
+
+    # Información adicional sobre wireless
+    if solution.get('Has_wireless', False):
+        report_lines.append("CONFIGURACIÓN WIRELESS:")
+        report_lines.append("  - Una cabecera maestra controla todas las pastillas")
+        report_lines.append("  - Las pastillas están distribuidas por zonas")
         report_lines.append("")
 
     # Pie de página
@@ -689,7 +733,6 @@ def generate_solution_report(req, solution, protocol):
     report_lines.append("=" * 60)
 
     return "\n".join(report_lines)
-
 # Interfaz web principal
 def main():
     if not check_password():
