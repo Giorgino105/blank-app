@@ -774,6 +774,7 @@ def update_counter(file_path="counter.txt"):
 
 
 
+
 def main():
     # Inicialización de variables de sesión
     if "authenticated" not in st.session_state:
@@ -782,11 +783,16 @@ def main():
         st.session_state.current_user = ""
     if "logout_triggered" not in st.session_state:
         st.session_state.logout_triggered = False
+    if "login_success" not in st.session_state:
+        st.session_state.login_success = False
 
     # Si no está autenticado, mostrar login
     if not st.session_state.authenticated:
         login()
-        return  # Importante: detener aquí para que no se ejecute el resto
+        if st.session_state.login_success:
+            st.session_state.login_success = False
+            st.experimental_rerun()
+        return  # Detener ejecución aquí si no está autenticado
 
     # Menú lateral
     menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
@@ -1099,20 +1105,20 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 
+
 def login():
     st.title("Iniciar sesión")
     username = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
 
     if st.button("Entrar"):
-        # Aquí puedes validar contra una base de datos o lista de usuarios
-        if username == "PE" and password == "admin":
+        if username == "admin" and password == "1234":
             st.session_state.authenticated = True
             st.session_state.current_user = username
-            st.success("Inicio de sesión exitoso")
-            st.experimental_rerun()
+            st.session_state.login_success = True  # Nueva bandera
         else:
             st.error("Credenciales incorrectas")
+
 
 
 
