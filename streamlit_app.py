@@ -863,25 +863,49 @@ def generate_solution_report(req, solution, protocol):
     report_lines.append(f"{'TOTAL:':<37} {solution['Precio_total']:>8.2f}€")
     report_lines.append("")
 
-    # Distribución por zonas
     if len(req['zones']) > 1:
         report_lines.append("DISTRIBUCIÓN POR ZONAS:")
         for zone_data in solution['Distribucion_zonas']:
             zone_id = zone_data['zone_id']
             zone_modules = zone_data['modules']
             zone_wireless = zone_data.get('wireless_modules', [])
-            zone_count = zone_data['modules_count']
-
-            report_lines.append(f"  Zona {zone_id} ({zone_count} módulos normales):")
-            for mod, qty in zone_modules:
-                report_lines.append(f"    - {mod['Referencia']} x{qty}")
             
+            # Contar módulos normales + wireless
+            normal_count = sum(qty for mod, qty in zone_modules)
+            wireless_count = sum(qty for mod, qty, _ in zone_wireless) if zone_wireless else 0
+            total_zone_count = normal_count + wireless_count
+
+            report_lines.append(f"  Zona {zone_id} ({total_zone_count} módulos totales):")
+            
+            # Módulos normales
+            if zone_modules:
+                for mod, qty in zone_modules:
+                    report_lines.append(f"    - {mod['Referencia']} x{qty}")
+            
+            # Módulos wireless
             if zone_wireless:
-                report_lines.append(f"    Pastillas wireless:")
                 for mod, qty, _ in zone_wireless:
-                    report_lines.append(f"      - {mod['Referencia']} x{qty} (pastilla)")
+                    report_lines.append(f"    - {mod['Referencia']} x{qty}")
+            
+            # Si no hay módulos en la zona
+            if not zone_modules and not zone_wireless:
+                report_lines.append(f"    Sin módulos asignados")
 
         report_lines.append("")
+
+    # Información adicional sobre wireless
+    if solution.get('Has_wireless', False):
+        report_lines.append("CONFIGURACIÓN WIRELESS:")
+        report_lines.append("  - Una cabecera maestra controla todas las pastillas")
+        report_lines.append("  - Las pastillas están distribuidas por zonas")
+        report_lines.append("")
+
+    # Pie de página
+    report_lines.append("=" * 60)
+    report_lines.append("Reporte generado por Calculador SMC")
+    report_lines.append("=" * 60)
+
+    return "\n".join(report_lines)
 
     # Información adicional sobre wireless
     if solution.get('Has_wireless', False):
