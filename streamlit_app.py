@@ -780,6 +780,26 @@ def main():
     if not check_password():
         return
 
+    st.sidebar.success(f"Conectado como: {st.session_state['current_user']}")
+    if st.sidebar.button("Cerrar Sesión"):
+        for key in st.session_state.keys():
+            del st.session_state[key]
+        st.rerun()
+
+    # Menú de navegación
+    opcion = st.sidebar.radio("Selecciona una sección:", ["Configurador", "Conversor"])
+
+    if opcion == "Configurador":
+        mostrar_configurador()
+    elif opcion == "Conversor":
+        mostrar_conversor()
+
+    
+
+def mostrar_configurador():
+    if not check_password():
+        return
+
     # Mostrar usuario actual
     st.sidebar.success(f"Conectado como: {st.session_state['current_user']}")
     if st.sidebar.button("Cerrar Sesión"):
@@ -1051,6 +1071,26 @@ def main():
 
     else:
         st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
+
+
+def mostrar_conversor():
+    st.title("🔄 Conversor Fuerza-Par")
+
+    st.subheader("Conversión Fuerza → Par")
+    M = st.number_input("Par de entrada (Nm)", value=2.28)
+    p = st.number_input("Paso (mm)", value=3.3)
+    eta = st.number_input("Rendimiento mecánico", value=0.9)
+    F = (2 * 3.1416 * eta * M) / p
+    st.write(f"Fuerza disponible: {F:.1f} N")
+
+    st.subheader("Conversión Par → Fuerza")
+    F2 = st.number_input("Fuerza (N)", value=800)
+    p2 = st.number_input("Paso (mm)", value=4.0)
+    eta2 = st.number_input("Rendimiento mecánico", value=0.8)
+    M2 = (p2 * F2) / (2 * 3.1416 * eta2)
+    st.write(f"Par necesario: {M2:.3f} Nm")
+
+
 
 # Ejecutar la aplicación
 if __name__ == "__main__":
