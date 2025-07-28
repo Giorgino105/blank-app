@@ -516,8 +516,12 @@ def enumerate_solutions(req, df, fam_limits):
                 'zone_id': zone_id,
                 'modules': zone_normal_modules,
                 'wireless_modules': zone_wireless_modules,
-                'modules_count': sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades, no contar tipos
+                'modules_count': (
+                    sum(qty for mod, qty in zone_normal_modules) +
+                    sum(qty for mod, qty, _ in zone_wireless_modules)
+                )
             })
+
             total_modules_needed += sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades
 
         if rejection_reason:
@@ -907,19 +911,6 @@ def generate_solution_report(req, solution, protocol):
 
     return "\n".join(report_lines)
 
-    # Información adicional sobre wireless
-    if solution.get('Has_wireless', False):
-        report_lines.append("CONFIGURACIÓN WIRELESS:")
-        report_lines.append("  - Una cabecera maestra controla todas las pastillas")
-        report_lines.append("  - Las pastillas están distribuidas por zonas")
-        report_lines.append("")
-
-    # Pie de página
-    report_lines.append("=" * 60)
-    report_lines.append("Reporte generado por Calculador SMC")
-    report_lines.append("=" * 60)
-
-    return "\n".join(report_lines)
 def main():
     if not check_password():
         return
