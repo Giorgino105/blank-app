@@ -31,12 +31,6 @@ import streamlit as st
 
 def check_password():
     # Crear dos columnas: una para la imagen y otra para el contenido
-    col1, col2 = st.columns([1, 2])  # Puedes ajustar la proporción según lo necesites
-
-    with col1:
-        st.image("https://images.seeklogo.com/logo-png/12/1/smc-logo-png_seeklogo-128243.png", width=400)
-
-    with col2:
         def password_entered():
             username = st.session_state["username"]
             password = st.session_state["password"]
