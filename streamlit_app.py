@@ -581,14 +581,15 @@ def enumerate_solutions(req, df, fam_limits):
         # Agregar módulos wireless (pastillas) - estos van separados por zona
         wireless_components = {}
         for mod, qty, zone_id in wireless_modules:
-            ref = f"{mod['Referencia']}-PASTILLA-Z{zone_id}"
+            ref = mod['Referencia']  # Quitar el sufijo PASTILLA
             if ref in wireless_components:
                 wireless_components[ref]['quantity'] += qty
+                wireless_components[ref]['zones'].append(zone_id)
             else:
                 wireless_components[ref] = {
                     'module': mod,
                     'quantity': qty,
-                    'zone_id': zone_id
+                    'zones': [zone_id]
                 }
 
         # Agregar al precio y componentes (módulos normales)
@@ -690,11 +691,13 @@ def generate_solution_report(req, solution, protocol):
 
     # Mostrar módulos wireless
     if wireless_components:
-        report_lines.append("  PASTILLAS WIRELESS:")
-        for ref, qty, _ in wireless_components:
-            # Aquí deberías obtener el precio real del módulo
-            subtotal = 0.0  # Calcular precio real
-            report_lines.append(f"    {ref:<28} x{qty:>3} = {subtotal:>8.2f}€")
+        report_lines.append("  MÓDULOS WIRELESS:")
+        for ref, data in wireless_components.items():
+            qty = data['quantity']
+            zones = data['zones']
+            zone_list = ", ".join([f"Z{z}" for z in zones])
+            subtotal = data['module']['Precio'] * qty
+            report_lines.append(f"    {ref:<28} x{qty:>3} = {subtotal:>8.2f}€ ({zone_list})")
 
     report_lines.append("-" * 50)
     report_lines.append(f"{'TOTAL:':<37} {solution['Precio_total']:>8.2f}€")
