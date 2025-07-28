@@ -35,26 +35,30 @@ def check_password():
         if username in VALID_PASSWORDS and VALID_PASSWORDS[username] == password:
             st.session_state["password_correct"] = True
             st.session_state["current_user"] = username
-            del st.session_state["password"]  # No guardar la contraseña
+            del st.session_state["password"]
+
+            # ⬇️ Solo cuenta el login si aún no se ha contado en esta sesión
+            if 'has_counted_login' not in st.session_state:
+                st.session_state['has_counted_login'] = True
+                visitas = update_counter()
+                st.toast(f"✅ Bienvenido {username}. Esta app se ha usado {visitas} veces.")
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Primera vez, mostrar inputs
         st.title("🔐 Acceso al Calculador SMC")
         st.text_input("Usuario", key="username")
         st.text_input("Contraseña", type="password", key="password", on_change=password_entered)
         return False
     elif not st.session_state["password_correct"]:
-        # Contraseña incorrecta
         st.title("🔐 Acceso al Calculador SMC")
         st.text_input("Usuario", key="username")
         st.text_input("Contraseña", type="password", key="password", on_change=password_entered)
         st.error("Usuario o contraseña incorrectos")
         return False
     else:
-        # Contraseña correcta
         return True
+
 
 # [Resto del código sin cambios - todas las funciones permanecen igual]
 @st.cache_data
@@ -456,171 +460,6 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
 
     return best_solution, best_modules_count, None
 
-def enumerate_solutions(req, df, fam_limits):
-    """Enumera todas las soluciones posibles para cada familia considerando zonas individuales"""
-    familias_disponibles = df["Familia"].unique()
-    solutions = []
-    rejected_families = []
-
-    for fam in familias_disponibles:
-        fam_df = df[df["Familia"] == fam]
-        max_mods = fam_limits.get(fam, 9)
-
-        rejection_reason = None
-
-        # Buscar módulo base - si no hay, crear uno virtual
-        base = fam_df[fam_df["Tipo"].str.lower() == "base"]
-        if base.empty:
-            base_price = 200.0
-            base_ref = f"{fam}-CPU-BASE"
-        else:
-            base = base.sort_values("Precio").iloc[0]
-            base_price = base["Precio"]
-            base_ref = base["Referencia"]
-
-        # Calcular módulos necesarios para cada zona
-        zone_modules = []
-        total_modules_needed = 0
-        wireless_modules = []  # Para almacenar módulos wireless de todas las zonas
-        has_wireless_zones = False  # Flag para detectar si hay módulos wireless
-
-        for zone in req['zones']:
-            zone_id = zone['zone_id']
-            di_needed = zone['digital_inputs']
-            do_needed = zone['digital_outputs']
-            iol_needed = zone['io_link_sensors']
-            ai_needed = zone['analog_inputs']
-            ao_needed = zone['analog_outputs']
-
-            # Calcular módulos para esta zona (solo una vez)
-            zone_solution, zone_modules_count, zone_error = calculate_zone_modules(
-                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed
-            )
-
-            if zone_error:
-                rejection_reason = f"Zona {zone_id}: {zone_error}"
-                break
-
-            # Separar módulos wireless de los normales
-            zone_normal_modules = []
-            zone_wireless_modules = []
-            
-            for mod, qty in zone_solution:
-                if mod['Wireless']:
-                    has_wireless_zones = True  # Marcamos que hay wireless
-                    zone_wireless_modules.append((mod, qty, zone_id))
-                    wireless_modules.append((mod, qty, zone_id))
-                else:
-                    zone_normal_modules.append((mod, qty))
-
-            zone_modules.append({
-                'zone_id': zone_id,
-                'modules': zone_normal_modules,
-                'wireless_modules': zone_wireless_modules,
-                'modules_count': (
-                    sum(qty for mod, qty in zone_normal_modules) +
-                    sum(qty for mod, qty, _ in zone_wireless_modules)
-                )
-            })
-
-            total_modules_needed += sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades
-
-        if rejection_reason:
-            rejected_families.append({
-                "Familia": fam,
-                "Razon": rejection_reason,
-                "Modulos_necesarios": total_modules_needed,
-                "Limite_familia": max_mods
-            })
-            continue
-
-        # Para wireless: agregar una cabecera maestra si hay módulos wireless
-        if has_wireless_zones:
-            wireless_master_modules = 1  # Una sola cabecera maestra para todos los wireless
-            total_modules_needed += wireless_master_modules
-        else:
-            wireless_master_modules = 0
-
-        # Verificar si excede el límite total de módulos
-        if total_modules_needed > max_mods:
-            rejection_reason = f"Excede el límite de módulos ({total_modules_needed} > {max_mods})"
-            rejected_families.append({
-                "Familia": fam,
-                "Razon": rejection_reason,
-                "Modulos_necesarios": total_modules_needed,
-                "Limite_familia": max_mods
-            })
-            continue
-
-        # Calcular precio total y componentes
-        # Para familias normales: una cabecera por zona
-        # Para wireless: solo una cabecera maestra (no CPU-BASE adicional)
-        if has_wireless_zones:
-            # Configuración wireless: solo cabecera maestra
-            wireless_master_ref = f"{fam}-WIRELESS-MASTER"
-            wireless_master_price = 300.0
-            price = wireless_master_price
-            components = [(wireless_master_ref, 1)]
-        else:
-            # Configuración normal: una cabecera por zona
-            num_headers_needed = req['num_zones']
-            price = base_price * num_headers_needed
-            components = [(base_ref, num_headers_needed)]
-
-        # Agregar módulos normales de todas las zonas
-        module_totals = {}
-
-        for zone_data in zone_modules:
-            for mod, qty in zone_data['modules']:
-                ref = mod['Referencia']
-                if ref in module_totals:
-                    module_totals[ref]['quantity'] += qty
-                else:
-                    module_totals[ref] = {
-                        'module': mod,
-                        'quantity': qty
-                    }
-
-        # Agregar módulos wireless (pastillas) - estos van separados por zona
-        wireless_components = {}
-        for mod, qty, zone_id in wireless_modules:
-            ref = mod['Referencia']  # Quitar el sufijo PASTILLA
-            if ref in wireless_components:
-                wireless_components[ref]['quantity'] += qty
-                wireless_components[ref]['zones'].append(zone_id)
-            else:
-                wireless_components[ref] = {
-                    'module': mod,
-                    'quantity': qty,
-                    'zones': [zone_id]
-                }
-
-        # Agregar al precio y componentes (módulos normales)
-        for ref, data in module_totals.items():
-            mod = data['module']
-            qty = data['quantity']
-            components.append((ref, qty))
-            price += mod['Precio'] * qty
-
-        # Agregar al precio y componentes (módulos wireless)
-        for ref, data in wireless_components.items():
-            mod = data['module']
-            qty = data['quantity']
-            components.append((ref, qty))
-            price += mod['Precio'] * qty
-
-        solutions.append({
-            "Familia": fam,
-            "Precio_total": round(price, 2),
-            "Componentes": components,
-            "Modulos_totales": total_modules_needed,
-            "Distribucion_zonas": zone_modules,
-            "Wireless_modules": wireless_components,
-            "Has_wireless": has_wireless_zones
-        })
-
-    solutions.sort(key=lambda s: s["Precio_total"])
-    return solutions, rejected_families
 
 def enumerate_solutions(req, df, fam_limits):
     """Enumera todas las soluciones posibles para cada familia considerando zonas individuales"""
@@ -915,7 +754,7 @@ def generate_solution_report(req, solution, protocol):
 
     return "\n".join(report_lines)
 def update_counter(file_path="counter.txt"):
-    """Lee, incrementa y guarda el contador en un archivo."""
+    import os
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             try:
@@ -931,6 +770,7 @@ def update_counter(file_path="counter.txt"):
         f.write(str(count))
 
     return count
+
 def main():
     if not check_password():
         return
@@ -1206,9 +1046,7 @@ def main():
 
     else:
         st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
-visit_count = update_counter()
-st.markdown("---")
-st.info(f"🔁 Esta aplicación se ha usado **{visit_count}** veces (total acumulado).")
+
 # Ejecutar la aplicación
 if __name__ == "__main__":
     main()
