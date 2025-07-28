@@ -27,7 +27,7 @@ VALID_PASSWORDS = {
 }
 
 def check_password():
-    st.image("https://images.seeklogo.com/logo-png/12/1/smc-logo-png_seeklogo-128243.png", width=1000)
+    st.image("https://images.seeklogo.com/logo-png/12/1/smc-logo-png_seeklogo-128243.png", width=300)
 
     """Manejo de autenticación"""
     def password_entered():
