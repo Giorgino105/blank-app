@@ -1,6 +1,7 @@
 
 # Código principal 
 
+import numpy as np
 import math
 import os
 import openpyxl
@@ -772,22 +773,27 @@ def update_counter(file_path="counter.txt"):
     return count
 
 def main():
-    if not check_password():
-        return
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
 
-    st.sidebar.success(f"Conectado como: {st.session_state['current_user']}")
-    if st.sidebar.button("Cerrar Sesión"):
-        for key in st.session_state.keys():
-            del st.session_state[key]
-        st.rerun()
+    if not st.session_state.authenticated:
+        login()
+    else:
+        menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
 
-    # Menú de navegación
-    opcion = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor"])
+        st.sidebar.markdown("---")
+        st.sidebar.markdown(f"Conectado como: {st.session_state.current_user}")
+        if st.sidebar.button("🔓 Cerrar sesión", key="logout"):
+            st.session_state.authenticated = False
+            st.session_state.current_user = ""
+            st.experimental_rerun()
 
-    if opcion == "Configurador":
-        mostrar_configurador()
-    elif opcion == "Conversor":
-        mostrar_conversor()
+        if menu == "Configurador":
+            mostrar_configurador()
+        elif menu == "Conversor":
+            mostrar_conversor()
+        elif menu == "Tiempo de Ciclo":
+            mostrar_tiempo_ciclo()
 
     
 
@@ -802,8 +808,8 @@ def mostrar_configurador():
                 del st.session_state[key]
             st.rerun()
 
-    st.title("🔧 Calculador de Soluciones SMC 2")
-    st.markdown("**Calculador de módulos SMC con configuración por zonas 2**")
+    st.title("🔧 Calculador de Soluciones SMC ")
+    st.markdown("**Calculador de módulos SMC con configuración por zonas**")
 
         # Subida de archivos
     st.header("1. Cargar Archivos de Configuración")
@@ -1067,6 +1073,19 @@ def mostrar_configurador():
     else:
             st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
 
+
+def login():
+    st.title("🔐 Acceso a SMC Proyecto Electrico Team")
+    usuario = st.text_input("Usuario")
+    contraseña = st.text_input("Contraseña", type="password")
+    if st.button("Iniciar sesión", key="login"):
+        if usuario == "admin" and contraseña == "1234":
+            st.session_state.authenticated = True
+            st.session_state.current_user = usuario
+            st.experimental_rerun()
+        else:
+            st.error("Credenciales incorrectas")
+
 def mostrar_conversor():
     st.title("🔄 Conversor Fuerza-Par")
 
@@ -1084,39 +1103,41 @@ def mostrar_conversor():
     M2 = (p2 * F2) / (2 * 3.1416 * eta2)
     st.write(f"Par necesario: {M2:.3f} Nm")
 
-def mostrar_tiempo_ciclo():
-    st.title("⏱️ Cálculo de Tiempo de Ciclo")
-
-    velocidad = st.number_input("Velocidad (mm/s)", value=3000.0)
-    aceleracion = st.number_input("Aceleración (mm/s²)", value=2400.0)
-    tiempo_estabilizado = st.number_input("Tiempo estabilizado (s)", value=0.05)
-    recorrido = st.number_input("Recorrido (mm)", value=1000.0)
-
-    # Cálculo del tiempo de aceleración
-    t_acc = velocidad / aceleracion
-    d_acc = 0.5 * aceleracion * t_acc**2
-
+def calcular_tc(v, a, recorrido, t_est):
+    t_acc = v / a
+    d_acc = 0.5 * a * t_acc**2
     if 2 * d_acc >= recorrido:
-        # No se alcanza velocidad máxima
-        t_total = 2 * math.sqrt(recorrido / aceleracion) + tiempo_estabilizado
-        st.warning("⚠️ No se alcanza la velocidad máxima durante el recorrido.")
+        t_acc = (recorrido / 2 / a)**0.5
+        tc = 2 * t_acc + t_est
     else:
-        # Se alcanza velocidad máxima
         d_const = recorrido - 2 * d_acc
-        t_const = d_const / velocidad
-        t_total = 2 * t_acc + t_const + tiempo_estabilizado
+        t_const = d_const / v
+        tc = 2 * t_acc + t_const + t_est
+    return tc
+def mostrar_tiempo_ciclo():
+    st.title("⏱️ Tiempo de Ciclo")
 
-    st.write(f"🕒 Tiempo de ciclo estimado: {t_total:.3f} segundos")
+    recorrido = st.sidebar.number_input("Recorrido (mm)", value=1000.0)
+    t_est = st.sidebar.number_input("Tiempo estabilizado (s)", value=0.05)
+
+    st.write("### Superficie 3D: TC = f(Velocidad, Aceleración)")
+
+    v_vals = np.linspace(500, 5000, 50)
+    a_vals = np.linspace(500, 5000, 50)
+    V, A = np.meshgrid(v_vals, a_vals)
+    TC = np.vectorize(calcular_tc)(V, A, recorrido, t_est)
+
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(V, A, TC, cmap='viridis')
+    ax.set_xlabel("Velocidad (mm/s)")
+    ax.set_ylabel("Aceleración (mm/s²)")
+    ax.set_zlabel("Tiempo de Ciclo (s)")
+    st.pyplot(fig)
+
+
 st.sidebar.title("Menú de Navegación")
 menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
-
-# Mostrar sección correspondiente
-if menu == "Configurador":
-    mostrar_configurador()
-elif menu == "Conversor":
-    mostrar_conversor()
-elif menu == "Tiempo de Ciclo":
-    mostrar_tiempo_ciclo()
 
 
 # Ejecutar la aplicación
