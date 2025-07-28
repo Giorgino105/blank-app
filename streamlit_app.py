@@ -682,7 +682,10 @@ def enumerate_solutions(req, df, fam_limits):
                 'zone_id': zone_id,
                 'modules': zone_normal_modules,
                 'wireless_modules': zone_wireless_modules,
-                'modules_count': sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades, no contar tipos
+                'modules_count': (
+                    sum(qty for mod, qty in zone_normal_modules) +
+                    sum(qty for mod, qty, _ in zone_wireless_modules)
+                )
             })
             total_modules_needed += sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades
 
