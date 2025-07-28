@@ -1124,13 +1124,6 @@ elif menu == "Conversor":
 elif menu == "Tiempo de Ciclo":
     mostrar_tiempo_ciclo()
 
-# Mostrar usuario y botón de cerrar sesión al final del sidebar
-st.sidebar.markdown("---")
-st.sidebar.markdown("Conectado como: JR")
-if st.sidebar.button("🔓 Cerrar sesión", key="logout_button"):
-    st.session_state.clear()
-    st.rerun()
-
 
 # Ejecutar la aplicación
 if __name__ == "__main__":
