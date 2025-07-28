@@ -772,28 +772,45 @@ def update_counter(file_path="counter.txt"):
 
     return count
 
+
 def main():
+    # Inicialización de variables de sesión
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+    if "current_user" not in st.session_state:
+        st.session_state.current_user = ""
+    if "logout_triggered" not in st.session_state:
+        st.session_state.logout_triggered = False
 
+    # Si no está autenticado, mostrar login
     if not st.session_state.authenticated:
         login()
     else:
+        # Menú lateral
         menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
 
         st.sidebar.markdown("---")
         st.sidebar.markdown(f"Conectado como: {st.session_state.current_user}")
+
+        # Botón de cerrar sesión
         if st.sidebar.button("🔓 Cerrar sesión", key="logout"):
             st.session_state.authenticated = False
             st.session_state.current_user = ""
-            st.experimental_rerun()
+            st.session_state.logout_triggered = True
 
+        # Mostrar la sección seleccionada
         if menu == "Configurador":
             mostrar_configurador()
         elif menu == "Conversor":
             mostrar_conversor()
         elif menu == "Tiempo de Ciclo":
             mostrar_tiempo_ciclo()
+
+        # Ejecutar rerun fuera del callback del botón
+        if st.session_state.logout_triggered:
+            st.session_state.logout_triggered = False
+            st.experimental_rerun()
+
 
     
 
@@ -1074,17 +1091,20 @@ def mostrar_configurador():
             st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
 
 
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
 def login():
-    st.title("🔐 Acceso a SMC Proyecto Electrico Team")
-    usuario = st.text_input("Usuario")
-    contraseña = st.text_input("Contraseña", type="password")
-    if st.button("Iniciar sesión", key="login"):
-        if usuario == "PE" and contraseña == "admin":
-            st.session_state.authenticated = True
-            st.session_state.current_user = usuario
-            st.experimental_rerun()
+    username = st.text_input("Usuario")
+    password = st.text_input("Contraseña", type="password")
+    if st.button("Iniciar sesión"):
+        if username == "admin" and password == "1234":
+            st.session_state.logged_in = True
+            st.success("Inicio de sesión exitoso")
         else:
             st.error("Credenciales incorrectas")
+
 
 def mostrar_conversor():
     st.title("🔄 Conversor Fuerza-Par")
