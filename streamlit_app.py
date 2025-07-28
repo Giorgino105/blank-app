@@ -1,6 +1,7 @@
 
 # Código principal 
 
+import math
 import os
 import openpyxl
 import streamlit as st
@@ -1089,6 +1090,46 @@ def mostrar_conversor():
     M2 = (p2 * F2) / (2 * 3.1416 * eta2)
     st.write(f"Par necesario: {M2:.3f} Nm")
 
+def mostrar_tiempo_ciclo():
+    st.title("⏱️ Cálculo de Tiempo de Ciclo")
+
+    velocidad = st.number_input("Velocidad (mm/s)", value=3000.0)
+    aceleracion = st.number_input("Aceleración (mm/s²)", value=2400.0)
+    tiempo_estabilizado = st.number_input("Tiempo estabilizado (s)", value=0.05)
+    recorrido = st.number_input("Recorrido (mm)", value=1000.0)
+
+    # Cálculo del tiempo de aceleración
+    t_acc = velocidad / aceleracion
+    d_acc = 0.5 * aceleracion * t_acc**2
+
+    if 2 * d_acc >= recorrido:
+        # No se alcanza velocidad máxima
+        t_total = 2 * math.sqrt(recorrido / aceleracion) + tiempo_estabilizado
+        st.warning("⚠️ No se alcanza la velocidad máxima durante el recorrido.")
+    else:
+        # Se alcanza velocidad máxima
+        d_const = recorrido - 2 * d_acc
+        t_const = d_const / velocidad
+        t_total = 2 * t_acc + t_const + tiempo_estabilizado
+
+    st.write(f"🕒 Tiempo de ciclo estimado: {t_total:.3f} segundos")
+st.sidebar.title("Menú de Navegación")
+menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
+
+# Mostrar sección correspondiente
+if menu == "Configurador":
+    mostrar_configurador()
+elif menu == "Conversor":
+    mostrar_conversor()
+elif menu == "Tiempo de Ciclo":
+    mostrar_tiempo_ciclo()
+
+# Mostrar usuario y botón de cerrar sesión al final del sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("Conectado como: JR")
+if st.sidebar.button("🔓 Cerrar sesión", key="logout_button"):
+    st.session_state.clear()
+    st.rerun()
 
 
 # Ejecutar la aplicación
