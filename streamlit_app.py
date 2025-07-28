@@ -617,6 +617,168 @@ def enumerate_solutions(req, df, fam_limits):
     solutions.sort(key=lambda s: s["Precio_total"])
     return solutions, rejected_families
 
+def enumerate_solutions(req, df, fam_limits):
+    """Enumera todas las soluciones posibles para cada familia considerando zonas individuales"""
+    familias_disponibles = df["Familia"].unique()
+    solutions = []
+    rejected_families = []
+
+    for fam in familias_disponibles:
+        fam_df = df[df["Familia"] == fam]
+        max_mods = fam_limits.get(fam, 9)
+
+        rejection_reason = None
+
+        # Buscar módulo base - si no hay, crear uno virtual
+        base = fam_df[fam_df["Tipo"].str.lower() == "base"]
+        if base.empty:
+            base_price = 200.0
+            base_ref = f"{fam}-CPU-BASE"
+        else:
+            base = base.sort_values("Precio").iloc[0]
+            base_price = base["Precio"]
+            base_ref = base["Referencia"]
+
+        # Calcular módulos necesarios para cada zona
+        zone_modules = []
+        total_modules_needed = 0
+        wireless_modules = []  # Para almacenar módulos wireless de todas las zonas
+        has_wireless_zones = False  # Flag para detectar si hay módulos wireless
+
+        for zone in req['zones']:
+            zone_id = zone['zone_id']
+            di_needed = zone['digital_inputs']
+            do_needed = zone['digital_outputs']
+            iol_needed = zone['io_link_sensors']
+            ai_needed = zone['analog_inputs']
+            ao_needed = zone['analog_outputs']
+
+            # Calcular módulos para esta zona (solo una vez)
+            zone_solution, zone_modules_count, zone_error = calculate_zone_modules(
+                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed
+            )
+
+            if zone_error:
+                rejection_reason = f"Zona {zone_id}: {zone_error}"
+                break
+
+            # Separar módulos wireless de los normales
+            zone_normal_modules = []
+            zone_wireless_modules = []
+            
+            for mod, qty in zone_solution:
+                if mod['Wireless']:
+                    has_wireless_zones = True  # Marcamos que hay wireless
+                    zone_wireless_modules.append((mod, qty, zone_id))
+                    wireless_modules.append((mod, qty, zone_id))
+                else:
+                    zone_normal_modules.append((mod, qty))
+
+            zone_modules.append({
+                'zone_id': zone_id,
+                'modules': zone_normal_modules,
+                'wireless_modules': zone_wireless_modules,
+                'modules_count': sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades, no contar tipos
+            })
+            total_modules_needed += sum(qty for mod, qty in zone_normal_modules)  # Sumar cantidades
+
+        if rejection_reason:
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": rejection_reason,
+                "Modulos_necesarios": total_modules_needed,
+                "Limite_familia": max_mods
+            })
+            continue
+
+        # Para wireless: agregar una cabecera maestra si hay módulos wireless
+        if has_wireless_zones:
+            wireless_master_modules = 1  # Una sola cabecera maestra para todos los wireless
+            total_modules_needed += wireless_master_modules
+        else:
+            wireless_master_modules = 0
+
+        # Verificar si excede el límite total de módulos
+        if total_modules_needed > max_mods:
+            rejection_reason = f"Excede el límite de módulos ({total_modules_needed} > {max_mods})"
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": rejection_reason,
+                "Modulos_necesarios": total_modules_needed,
+                "Limite_familia": max_mods
+            })
+            continue
+
+        # Calcular precio total y componentes
+        # Para familias normales: una cabecera por zona
+        # Para wireless: solo una cabecera maestra (no CPU-BASE adicional)
+        if has_wireless_zones:
+            # Configuración wireless: solo cabecera maestra
+            wireless_master_ref = f"{fam}-WIRELESS-MASTER"
+            wireless_master_price = 300.0
+            price = wireless_master_price
+            components = [(wireless_master_ref, 1)]
+        else:
+            # Configuración normal: una cabecera por zona
+            num_headers_needed = req['num_zones']
+            price = base_price * num_headers_needed
+            components = [(base_ref, num_headers_needed)]
+
+        # Agregar módulos normales de todas las zonas
+        module_totals = {}
+
+        for zone_data in zone_modules:
+            for mod, qty in zone_data['modules']:
+                ref = mod['Referencia']
+                if ref in module_totals:
+                    module_totals[ref]['quantity'] += qty
+                else:
+                    module_totals[ref] = {
+                        'module': mod,
+                        'quantity': qty
+                    }
+
+        # Agregar módulos wireless (pastillas) - estos van separados por zona
+        wireless_components = {}
+        for mod, qty, zone_id in wireless_modules:
+            ref = mod['Referencia']  # Quitar el sufijo PASTILLA
+            if ref in wireless_components:
+                wireless_components[ref]['quantity'] += qty
+                wireless_components[ref]['zones'].append(zone_id)
+            else:
+                wireless_components[ref] = {
+                    'module': mod,
+                    'quantity': qty,
+                    'zones': [zone_id]
+                }
+
+        # Agregar al precio y componentes (módulos normales)
+        for ref, data in module_totals.items():
+            mod = data['module']
+            qty = data['quantity']
+            components.append((ref, qty))
+            price += mod['Precio'] * qty
+
+        # Agregar al precio y componentes (módulos wireless)
+        for ref, data in wireless_components.items():
+            mod = data['module']
+            qty = data['quantity']
+            components.append((ref, qty))
+            price += mod['Precio'] * qty
+
+        solutions.append({
+            "Familia": fam,
+            "Precio_total": round(price, 2),
+            "Componentes": components,
+            "Modulos_totales": total_modules_needed,
+            "Distribucion_zonas": zone_modules,
+            "Wireless_modules": wireless_components,
+            "Has_wireless": has_wireless_zones
+        })
+
+    solutions.sort(key=lambda s: s["Precio_total"])
+    return solutions, rejected_families
+
 def generate_solution_report(req, solution, protocol):
     """Genera un reporte detallado de la solución"""
     report_lines = []
@@ -734,7 +896,6 @@ def generate_solution_report(req, solution, protocol):
     report_lines.append("=" * 60)
 
     return "\n".join(report_lines)
-# Interfaz web principal
 def main():
     if not check_password():
         return
