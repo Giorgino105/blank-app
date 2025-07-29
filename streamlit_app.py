@@ -28,8 +28,6 @@ VALID_PASSWORDS = {
     # Agrega más usuarios aquí
 }
 
-import streamlit as st
-
 def check_password():
     # Crear dos columnas: una para la imagen y otra para el contenido
         def password_entered():
@@ -772,9 +770,6 @@ def update_counter(file_path="counter.txt"):
 
     return count
 
-
-
-
 def main():
     # Inicialización de variables de sesión
     if "authenticated" not in st.session_state:
@@ -791,11 +786,8 @@ def main():
         login()
         if st.session_state.login_success:
             st.session_state.login_success = False
-            st.experimental_rerun()
+            
         return  # Detener ejecución aquí si no está autenticado
-
-    # Menú lateral
-    menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"Conectado como: {st.session_state.current_user}")
@@ -818,21 +810,13 @@ def main():
     if st.session_state.logout_triggered:
         st.session_state.logout_triggered = False
        
-
-
-
-    
-
 def mostrar_configurador():
     if not check_password():
         return
 
     # Mostrar usuario actual
     st.sidebar.success(f"Conectado como: {st.session_state['current_user']}")
-    if st.sidebar.button("Cerrar Sesión", key="logout_sidebar"):
-            for key in st.session_state.keys():
-                del st.session_state[key]
-            st.rerun()
+    
 
     st.title("🔧 Calculador de Soluciones SMC ")
     st.markdown("**Calculador de módulos SMC con configuración por zonas**")
@@ -1120,6 +1104,8 @@ def login():
             st.error("Credenciales incorrectas")
 
 
+st.sidebar.title("Menú de Navegación")
+menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
 
 
 def mostrar_conversor():
@@ -1150,30 +1136,23 @@ def calcular_tc(v, a, recorrido, t_est):
         t_const = d_const / v
         tc = 2 * t_acc + t_const + t_est
     return tc
+
+
 def mostrar_tiempo_ciclo():
     st.title("⏱️ Tiempo de Ciclo")
 
-    recorrido = st.sidebar.number_input("Recorrido (mm)", value=1000.0)
-    t_est = st.sidebar.number_input("Tiempo estabilizado (s)", value=0.05)
+    recorrido = st.number_input("Recorrido (mm)", value=1000.0)
+    t_est = st.number_input("Tiempo estabilizado (s)", value=0.05)
 
-    st.write("### Superficie 3D: TC = f(Velocidad, Aceleración)")
+    # Inputs para valores específicos
+    velocidad = st.number_input("Velocidad (mm/s)", value=2000.0)
+    aceleracion = st.number_input("Aceleración (mm/s²)", value=3000.0)
 
-    v_vals = np.linspace(500, 5000, 50)
-    a_vals = np.linspace(500, 5000, 50)
-    V, A = np.meshgrid(v_vals, a_vals)
-    TC = np.vectorize(calcular_tc)(V, A, recorrido, t_est)
-
-    fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.plot_surface(V, A, TC, cmap='viridis')
-    ax.set_xlabel("Velocidad (mm/s)")
-    ax.set_ylabel("Aceleración (mm/s²)")
-    ax.set_zlabel("Tiempo de Ciclo (s)")
-    st.pyplot(fig)
+    # Calcular TC para esos valores
+    tc_especifico = calcular_tc(velocidad, aceleracion, recorrido, t_est)
+    st.write(f"### Tiempo de Ciclo calculado: {tc_especifico:.4f} segundos")
 
 
-st.sidebar.title("Menú de Navegación")
-menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
 
 
 # Ejecutar la aplicación
