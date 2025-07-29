@@ -805,6 +805,8 @@ def main():
         mostrar_conversor()
     elif menu == "Tiempo de Ciclo":
         mostrar_tiempo_ciclo()
+    elif menu == "Cálculo de Fuerzas":
+        mostrar_fuerzas()
 
     # Ejecutar rerun fuera del callback del botón
     if st.session_state.logout_triggered:
@@ -1105,7 +1107,7 @@ def login():
 
 
 st.sidebar.title("Menú de Navegación")
-menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
+menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo","Cálculo de Fuerzas"])
 
 
 def mostrar_conversor():
@@ -1115,44 +1117,107 @@ def mostrar_conversor():
     M = st.number_input("Par de entrada (Nm)", value=2.28)
     p = st.number_input("Paso (mm)", value=3.3)
     eta = st.number_input("Rendimiento mecánico", value=0.9)
-    F = (2 * 3.1416 * eta * M) / p
+    F = ((2 * 3.1416 * eta * M) / p)*1000
     st.write(f"Fuerza disponible: {F:.1f} N")
 
     st.subheader("Conversión Par → Fuerza")
     F2 = st.number_input("Fuerza (N)", value=800)
     p2 = st.number_input("Paso (mm)", value=4.0)
     eta2 = st.number_input("Rendimiento mecánico", value=0.8)
-    M2 = (p2 * F2) / (2 * 3.1416 * eta2)
+    M2 = (p2 * F2) / (2 * 3.1416 * eta2*1000)
     st.write(f"Par necesario: {M2:.3f} Nm")
 
-def calcular_tc(v, a, recorrido, t_est):
-    t_acc = v / a
-    d_acc = 0.5 * a * t_acc**2
-    if 2 * d_acc >= recorrido:
-        t_acc = (recorrido / 2 / a)**0.5
-        tc = 2 * t_acc + t_est
+def calcular_tc():
+    vel = st.number_input("Velocidad máxima (mm/s)", value=3000)
+    accel = st.number_input("Aceleración (mm/s²)", value=2400)
+    total_distance = st.number_input("Recorrido total (mm)", value=1000)
+    t_estab = st.number_input("Tiempo estabilizado (s)", value=0.05)
+    # Cálculo alternativo del tiempo de aceleración
+    if 0.5 * accel * (vel / accel)**2 > total_distance / 2:
+        # Perfil triangular
+        t_accel = math.sqrt(total_distance / accel)
+        d_accel = total_distance / 2
+        t_max_speed = 0
+        d_max_speed = 0
+        perfil = "Triangular"
+        
     else:
-        d_const = recorrido - 2 * d_acc
-        t_const = d_const / v
-        tc = 2 * t_acc + t_const + t_est
-    return tc
+        # Perfil trapezoidal
+        t_accel = vel / accel
+        d_accel = 0.5 * vel**2 / accel
+        d_max_speed = total_distance - 2 * d_accel
+        t_max_speed = d_max_speed / vel
+        perfil = "Trapezoidal"
+        
+
+    
+    t_cycle = 2 * t_accel + t_max_speed + t_estab
+
+    return t_cycle, perfil, t_accel, d_accel, t_max_speed, d_max_speed
+    
 
 
 def mostrar_tiempo_ciclo():
     st.title("⏱️ Tiempo de Ciclo")
 
-    recorrido = st.number_input("Recorrido (mm)", value=1000.0)
-    t_est = st.number_input("Tiempo estabilizado (s)", value=0.05)
+    t_cycle, perfil, t_accel, d_accel, t_max_speed, d_max_speed = calcular_tc()
 
-    # Inputs para valores específicos
-    velocidad = st.number_input("Velocidad (mm/s)", value=2000.0)
-    aceleracion = st.number_input("Aceleración (mm/s²)", value=3000.0)
+    st.subheader("Resultados")
+    st.write(f"**Tipo de perfil:** {perfil}")
+    st.write(f"Tiempo de aceleración o frenada: `{t_accel:.4f}` s")
+    st.write(f"Recorrido en aceleración o frenada: `{d_accel:.3f}` mm")
+    st.write(f"Tiempo a velocidad máxima: `{t_max_speed:.4f}` s")
+    st.write(f"Recorrido a velocidad máxima: `{d_max_speed:.3f}` mm")
+    st.write(f"### Tiempo de Ciclo calculado: `{t_cycle:.4f}` segundos")
 
-    # Calcular TC para esos valores
-    tc_especifico = calcular_tc(velocidad, aceleracion, recorrido, t_est)
-    st.write(f"### Tiempo de Ciclo calculado: {tc_especifico:.4f} segundos")
+def mostrar_fuerzas():
+    st.title("⚙️ Cálculo de Fuerzas e Inercias")
 
+    # --- Parámetros de entrada para Fuerzas ---
+    st.subheader("Parámetros de entrada - Fuerzas")
+    masa_f = st.number_input("Masa a transportar (kg)", value=34.0, key="masa_f")
+    inclinacion_f = st.number_input("Inclinación del movimiento (°)", value=85.0, key="inclinacion_f")
+    rozamiento_f = st.number_input("Coeficiente de rozamiento", value=0.1, key="rozamiento_f")
+    aceleracion_f = st.number_input("Aceleración necesaria (mm/s²)", value=13498.0, key="aceleracion_f")
 
+    # --- Parámetros del sistema para Fuerzas ---
+    st.subheader("Parámetros del sistema - Fuerzas")
+    potencia_motor_f = st.number_input("Potencia del motor (W)", value=100.0, key="potencia_motor_f")
+    paso_husillo_f = st.number_input("Paso del husillo (mm)", value=3.0, key="paso_husillo_f")
+    rendimiento_f = st.number_input("Rendimiento", value=0.9, key="rendimiento_f")
+
+    # --- Cálculo de Fuerza ---
+    st.subheader("Cálculo de Fuerza")
+    fuerza_necesaria = (
+        rozamiento_f * masa_f * 9.81 * math.cos(math.radians(inclinacion_f)) +
+        masa_f * 9.81 * math.sin(math.radians(inclinacion_f)) +
+        masa_f * aceleracion_f / 1000
+    )
+    fuerza_disponible = (
+        (191 * math.pi * potencia_motor_f) /
+        ((paso_husillo_f * 30)) * rendimiento_f
+    )
+
+    st.metric("Fuerza Necesaria", f"{fuerza_necesaria:.0f} N")
+    st.metric("Fuerza Disponible", f"{fuerza_disponible:.0f} N")
+    st.metric("Coeficiente de Seguridad", f"{fuerza_disponible / fuerza_necesaria:.2f}")
+
+    # --- Parámetros para Inercia ---
+    st.subheader("Parámetros del sistema - Inercia")
+    masa_i = st.number_input("Masa a transportar (kg)", value=34.0, key="masa_i")
+    paso_husillo_i = st.number_input("Paso del husillo (mm)", value=3.0, key="paso_husillo_i")
+    rendimiento_i = st.number_input("Rendimiento", value=0.9, key="rendimiento_i")
+    diametro_i = st.number_input("Diámetro del husillo (mm)", value=20.0, key="diametro_i")
+    carrera_i = st.number_input("Carrera (mm)", value=100.0, key="carrera_i")
+    inercia_motor_i = st.number_input("Inercia del motor (kg·cm²)", value=0.672, key="inercia_motor_i")
+
+    # --- Cálculo de Inercia ---
+    ratio_inercia = (
+        (masa_i * ((paso_husillo_i * 1e-3) / (2 * math.pi))**2 * 10000) +
+        ((3.925 * math.pi * (carrera_i + 200) * (diametro_i / 2000)**4 * 10000) / rendimiento_i)
+    ) / inercia_motor_i
+
+    st.metric("Ratio de Inercia", f"{ratio_inercia:.2f}")
 
 
 # Ejecutar la aplicación
