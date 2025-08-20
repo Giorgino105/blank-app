@@ -61,34 +61,56 @@ def check_password():
         return True
 
 def load_family_data(file) -> dict:
+    """Carga datos de familias desde archivo Excel, soportando múltiples protocolos por familia"""
+    import pandas as pd
+
     df = pd.read_excel(file, header=None)
 
-    # Fila donde están los protocolos
-    protocol_row = None
-    for idx, value in enumerate(df.iloc[:, 0]):
-        if str(value).lower().strip() in ["protocol", "protocolo"]:
-            protocol_row = idx
-            break
+    # Localizar filas clave
+    row_familia   = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("familia")][0]
+    row_ref       = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("referencia")][0]
+    row_protocol  = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("protocol")][0]
+    row_precio    = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("precio")][0]
+    row_maxmods   = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("max_modulos")][0]
 
     familias_data = {}
-    if protocol_row is not None:
-        # Tomar todos los protocolos de esa fila (excepto la primera columna)
-        all_protocols = df.iloc[protocol_row, 1:].dropna().astype(str).str.strip().tolist()
 
-        # Quitar duplicados manteniendo orden
-        seen = set()
-        all_protocols = [p for p in all_protocols if not (p in seen or seen.add(p))]
+    # Recorrer columnas desde la 2ª (índice 1)
+    for col in range(1, df.shape[1]):
+        familia   = str(df.iloc[row_familia, col]).strip()
+        referencia= str(df.iloc[row_ref, col]).strip()
+        protocolo = str(df.iloc[row_protocol, col]).strip()
+        
+        try:
+            precio = float(df.iloc[row_precio, col])
+        except:
+            precio = 200.0
 
-        # Crear diccionario ficticio (por compatibilidad con el resto del código)
-        for fam in df.iloc[1, 1:]:  # Fila 1 = familias
-            familias_data[fam] = {
-                "protocolos": all_protocols,
-                "cabeceras": [],
-                "max_modulos": 8
-            }
+        try:
+            max_modulos = int(df.iloc[row_maxmods, col])
+        except:
+            max_modulos = 8
+
+        if familia and familia.lower() not in ["nan", "none", ""]:
+            if familia not in familias_data:
+                familias_data[familia] = {
+                    "protocolos": [],
+                    "cabeceras": [],
+                    "max_modulos": max_modulos
+                }
+
+            # Añadir protocolo a la lista si no está
+            if protocolo not in familias_data[familia]["protocolos"]:
+                familias_data[familia]["protocolos"].append(protocolo)
+
+            # Añadir cabecera
+            familias_data[familia]["cabeceras"].append({
+                "referencia": referencia,
+                "precio": precio,
+                "protocolo": protocolo
+            })
 
     return familias_data
-
 
 @st.cache_data
 def load_catalog_with_limits_web(catalog_file, families_file):
@@ -472,27 +494,37 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
 
     return best_solution, best_modules_count, None
 
-def enumerate_solutions(req, df, familias_info):
-    """Enumera todas las soluciones posibles para cada familia considerando zonas individuales"""
+def enumerate_solutions(req, df, familias_info, selected_protocol):
+    """Enumera todas las soluciones posibles para cada familia considerando zonas individuales y el protocolo elegido"""
     familias_disponibles = df["Familia"].unique()
     solutions = []
     rejected_families = []
 
     for fam in familias_disponibles:
         fam_df = df[df["Familia"] == fam]
-        max_mods = familias_info.get(fam, 9)
+        max_mods = familias_info.get(fam, {}).get("max_modulos", 9)
 
         rejection_reason = None
 
-        # Buscar módulo base - si no hay, crear uno virtual
-        base = fam_df[fam_df["Tipo"].str.lower() == "base"]
-        if base.empty:
-            base_price = 200.0
-            base_ref = f"{fam}-CPU-BASE"
-        else:
-            base = base.sort_values("Precio").iloc[0]
-            base_price = base["Precio"]
-            base_ref = base["Referencia"]
+        # Buscar cabecera según protocolo
+        cabecera = None
+        for c in familias_info.get(fam, {}).get("cabeceras", []):
+            if c["protocolo"].strip().lower() == selected_protocol.strip().lower():
+                cabecera = c
+                break
+
+        if not cabecera:
+            # Si no hay cabecera con ese protocolo, descartamos esta familia
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": f"No disponible para protocolo {selected_protocol}",
+                "Modulos_necesarios": 0,
+                "Limite_familia": max_mods
+            })
+            continue
+
+        base_price = cabecera["precio"]
+        base_ref   = cabecera["referencia"]
 
         # Calcular módulos necesarios para cada zona
         zone_modules = []
@@ -517,7 +549,7 @@ def enumerate_solutions(req, df, familias_info):
                 rejection_reason = f"Zona {zone_id}: {zone_error}"
                 break
 
-            # Separar módulos wireless de los normales
+            # Separar wireless de normales
             zone_normal_modules = []
             zone_wireless_modules = []
             
@@ -549,14 +581,14 @@ def enumerate_solutions(req, df, familias_info):
             })
             continue
 
-        # Para wireless: agregar una cabecera maestra si hay módulos wireless
+        # Wireless: añadir cabecera maestra
         if has_wireless_zones:
             wireless_master_modules = 1
             total_modules_needed += wireless_master_modules
         else:
             wireless_master_modules = 0
 
-        # Verificar si excede el límite total de módulos
+        # Verificar límite de módulos
         if total_modules_needed > max_mods:
             rejection_reason = f"Excede el límite de módulos ({total_modules_needed} > {max_mods})"
             rejected_families.append({
@@ -578,9 +610,8 @@ def enumerate_solutions(req, df, familias_info):
             price = base_price * num_headers_needed
             components = [(base_ref, num_headers_needed)]
 
-        # Agregar módulos normales de todas las zonas
+        # Agregar módulos normales
         module_totals = {}
-
         for zone_data in zone_modules:
             for mod, qty in zone_data['modules']:
                 ref = mod['Referencia']
@@ -592,7 +623,7 @@ def enumerate_solutions(req, df, familias_info):
                         'quantity': qty
                     }
 
-        # Agregar módulos wireless
+        # Agregar wireless
         wireless_components = {}
         for mod, qty, zone_id in wireless_modules:
             ref = mod['Referencia']
@@ -606,14 +637,13 @@ def enumerate_solutions(req, df, familias_info):
                     'zones': [zone_id]
                 }
 
-        # Agregar al precio y componentes (módulos normales)
+        # Sumar precios
         for ref, data in module_totals.items():
             mod = data['module']
             qty = data['quantity']
             components.append((ref, qty))
             price += mod['Precio'] * qty
 
-        # Agregar al precio y componentes (módulos wireless)
         for ref, data in wireless_components.items():
             mod = data['module']
             qty = data['quantity']
@@ -738,7 +768,33 @@ def update_counter(file_path="counter.txt"):
     with open(file_path, "w") as f:
         f.write(str(count))
 
-    return count
+    return count       
+
+def login():
+    st.title("🔐 Acceso al Calculador SMC")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        username = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
+        
+        if st.button("Entrar", type="primary"):
+            # Usar el sistema de autenticación original con múltiples usuarios
+            if username in VALID_PASSWORDS and VALID_PASSWORDS[username] == password:
+                st.session_state.authenticated = True
+                st.session_state.current_user = username
+                st.session_state.login_success = True
+                
+                # Contar visita si es la primera vez en esta sesión
+                if 'has_counted_login' not in st.session_state:
+                    st.session_state['has_counted_login'] = True
+                    visitas = update_counter()
+                    st.success(f"✅ Bienvenido {username}. Esta app se ha usado {visitas} veces.")
+                else:
+                    st.success(f"¡Bienvenido {username}!")
+            else:
+                st.error("Usuario o contraseña incorrectos")
 
 def main():
     # Inicialización de variables de sesión
@@ -756,14 +812,18 @@ def main():
         login()
         if st.session_state.login_success:
             st.session_state.login_success = False
-            
+            st.rerun()  # Forzar recarga de la página después del login exitoso
         return  # Detener ejecución aquí si no está autenticado
 
+    # Sidebar con menú de navegación
+    st.sidebar.title("Menú de Navegación")
+    menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
+    
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"Conectado como: {st.session_state.current_user}")
 
     # Botón de cerrar sesión
-    if st.sidebar.button("🔓 Cerrar sesión", key="logout"):
+    if st.sidebar.button("🔒 Cerrar sesión", key="logout"):
         st.session_state.authenticated = False
         st.session_state.current_user = ""
         st.session_state.logout_triggered = True
@@ -779,294 +839,277 @@ def main():
     # Ejecutar rerun fuera del callback del botón
     if st.session_state.logout_triggered:
         st.session_state.logout_triggered = False
-       
+        st.rerun()
+
 def mostrar_configurador():
     if not check_password():
         return
 
     # Mostrar usuario actual
     st.sidebar.success(f"Conectado como: {st.session_state['current_user']}")
-    
 
-    st.title("🔧 Calculador de Soluciones SMC ")
+    st.title("🔧 Calculador de Soluciones SMC")
     st.markdown("**Calculador de módulos SMC con configuración por zonas**")
 
-        # Subida de archivos
+    # Subida de archivos
     st.header("1. Cargar Archivos de Configuración")
 
     col1, col2 = st.columns(2)
 
     with col1:
-            catalog_file = st.file_uploader(
-                "Catálogo de Módulos (Configs.xlsx)",
-                type=['xlsx', 'xls'],
-                help="Archivo con la información de los módulos SMC"
-            )
+        catalog_file = st.file_uploader(
+            "Catálogo de Módulos (Configs.xlsx)",
+            type=['xlsx', 'xls'],
+            help="Archivo con la información de los módulos SMC"
+        )
 
     with col2:
-            families_file = st.file_uploader(
-                "Configuración de Familias (Familias.xlsx)",
-                type=['xlsx', 'xls'],
-                help="Archivo con los límites y protocolos de las familias"
-            )
+        families_file = st.file_uploader(
+            "Configuración de Familias (Familias.xlsx)",
+            type=['xlsx', 'xls'],
+            help="Archivo con los límites y protocolos de las familias"
+        )
 
     if catalog_file and families_file:
-            try:
-                df, familias_info = load_catalog_with_limits_web(catalog_file, families_file)
+        try:
+            df, familias_info = load_catalog_with_limits_web(catalog_file, families_file)
 
-                st.success(f"✅ Archivos cargados correctamente: {len(df)} módulos, {len(familias_info)} familias")
+            st.success(f"✅ Archivos cargados correctamente: {len(df)} módulos, {len(familias_info)} familias")
 
-                # Selección de protocolo
-                st.header("2. Seleccionar Protocolo de Comunicación")
+            # Selección de protocolo
+            st.header("2. Seleccionar Protocolo de Comunicación")
 
-                all_protocols = set()
-                for familia, info in familias_info.items():
-                    all_protocols.update(info["protocolos"])
+            all_protocols = set()
+            for familia, info in familias_info.items():
+                all_protocols.update(info["protocolos"])
 
-                selected_protocol = st.selectbox(
-                    "Protocolo de comunicación:",
-                    sorted(list(all_protocols)),
-                    help="Selecciona el protocolo que necesitas"
-                )
+            selected_protocol = st.selectbox(
+                "Protocolo de comunicación:",
+                sorted(list(all_protocols)),
+                help="Selecciona el protocolo que necesitas"
+            )
 
-                # Filtrar por protocolo
-                # Crear diccionario de protocolos por familia
-                fam_protocols = {familia: info["protocolos"] for familia, info in familias_info.items()}
+            # Filtrar por protocolo
+            # Crear diccionario de protocolos por familia
+            fam_protocols = {familia: info["protocolos"] for familia, info in familias_info.items()}
 
-                # Filtrar por protocolo
-                df, familias_info_filtered, compatible_families = filter_families_by_protocol(
-                    df, familias_info, fam_protocols, selected_protocol
-                )
+            # Filtrar por protocolo
+            df, familias_info_filtered, compatible_families = filter_families_by_protocol(
+                df, familias_info, fam_protocols, selected_protocol
+            )
 
-                if df.empty:
-                    st.error("❌ No hay módulos compatibles con el protocolo seleccionado")
-                    return
+            if df.empty:
+                st.error("❌ No hay módulos compatibles con el protocolo seleccionado")
+                return
 
-                st.info(f"✅ Familias compatibles: {', '.join(compatible_families)}")
+            st.info(f"✅ Familias compatibles: {', '.join(compatible_families)}")
 
-                # Configuración de zonas
-                st.header("3. Configuración de Zonas")
+            # Configuración de zonas
+            st.header("3. Configuración de Zonas")
 
-                num_zones = st.number_input("Número de zonas:", min_value=1, max_value=20, value=1)
-                zones_equal = st.checkbox("¿Todas las zonas son iguales?")
+            num_zones = st.number_input("Número de zonas:", min_value=1, max_value=20, value=1)
+            zones_equal = st.checkbox("¿Todas las zonas son iguales?")
 
-                zones = []
+            zones = []
 
-                if zones_equal:
-                    st.subheader("Configuración para todas las zonas (iguales)")
-                    col1, col2, col3, col4, col5 = st.columns(5)  # CAMBIAR DE 3 A 5 COLUMNAS
+            if zones_equal:
+                st.subheader("Configuración para todas las zonas (iguales)")
+                col1, col2, col3, col4, col5 = st.columns(5)
+
+                with col1:
+                    di = st.number_input("Entradas digitales:", min_value=0, value=0, key="di_all")
+                with col2:
+                    do = st.number_input("Salidas digitales:", min_value=0, value=0, key="do_all")
+                with col3:
+                    iol = st.number_input("Sensores IO-Link:", min_value=0, value=0, key="iol_all")
+                with col4:
+                    ai = st.number_input("Entradas analógicas:", min_value=0, value=0, key="ai_all")
+                with col5:
+                    ao = st.number_input("Salidas analógicas:", min_value=0, value=0, key="ao_all")
+
+                for i in range(num_zones):
+                    zones.append({
+                        'zone_id': i + 1,
+                        'digital_inputs': di,
+                        'digital_outputs': do,
+                        'io_link_sensors': iol,
+                        'analog_inputs': ai,
+                        'analog_outputs': ao
+                    })
+
+            else:
+                st.subheader("Configuración individual por zona")
+
+                for i in range(num_zones):
+                    st.write(f"**Zona {i+1}**")
+                    col1, col2, col3, col4, col5 = st.columns(5)
 
                     with col1:
-                        di = st.number_input("Entradas digitales:", min_value=0, value=0, key="di_all")
+                        di = st.number_input("DI:", min_value=0, value=0, key=f"di_{i}")
                     with col2:
-                        do = st.number_input("Salidas digitales:", min_value=0, value=0, key="do_all")
+                        do = st.number_input("DO:", min_value=0, value=0, key=f"do_{i}")
                     with col3:
-                        iol = st.number_input("Sensores IO-Link:", min_value=0, value=0, key="iol_all")
+                        iol = st.number_input("IO-Link:", min_value=0, value=0, key=f"iol_{i}")
                     with col4:
-                        ai = st.number_input("Entradas analógicas:", min_value=0, value=0, key="ai_all")  # NUEVO
+                        ai = st.number_input("AI:", min_value=0, value=0, key=f"ai_{i}")
                     with col5:
-                        ao = st.number_input("Salidas analógicas:", min_value=0, value=0, key="ao_all")  # NUEVO
+                        ao = st.number_input("AO:", min_value=0, value=0, key=f"ao_{i}")
 
-                    for i in range(num_zones):
-                        zones.append({
-                            'zone_id': i + 1,
-                            'digital_inputs': di,
-                            'digital_outputs': do,
-                            'io_link_sensors': iol,
-                            'analog_inputs': ai,  # NUEVO
-                            'analog_outputs': ao   # NUEVO
-                        })
+                    zones.append({
+                        'zone_id': i + 1,
+                        'digital_inputs': di,
+                        'digital_outputs': do,
+                        'io_link_sensors': iol,
+                        'analog_inputs': ai,
+                        'analog_outputs': ao
+                    })
 
-                else:
-                    st.subheader("Configuración individual por zona")
+            # Parámetros adicionales
+            st.header("4. Parámetros Adicionales")
 
-                    for i in range(num_zones):
-                        st.write(f"**Zona {i+1}**")
-                        col1, col2, col3, col4, col5 = st.columns(5)  # CAMBIAR DE 3 A 5 COLUMNAS
+            col1, col2 = st.columns(2)
+            with col1:
+                distance_m = st.number_input("Distancia máxima entre zonas (m):", min_value=0.0, value=10.0)
+            with col2:
+                connector_type = st.selectbox(
+                    "Tipo de conector:",
+                    ["", "M8", "M12", "mixto"],
+                    help="Deja vacío si es indiferente"
+                )
 
-                        with col1:
-                            di = st.number_input("DI:", min_value=0, value=0, key=f"di_{i}")
-                        with col2:
-                            do = st.number_input("DO:", min_value=0, value=0, key=f"do_{i}")
-                        with col3:
-                            iol = st.number_input("IO-Link:", min_value=0, value=0, key=f"iol_{i}")
-                        with col4:
-                            ai = st.number_input("AI:", min_value=0, value=0, key=f"ai_{i}")  # NUEVO
-                        with col5:
-                            ao = st.number_input("AO:", min_value=0, value=0, key=f"ao_{i}")  # NUEVO
+            # Preparar requerimientos
+            req = {
+                "zones": zones,
+                "num_zones": num_zones,
+                "zones_equal": zones_equal,
+                "distance_m": distance_m,
+                "connector_type": connector_type,
+                "total_digital_inputs": sum(zone['digital_inputs'] for zone in zones),
+                "total_digital_outputs": sum(zone['digital_outputs'] for zone in zones),
+                "total_io_link_sensors": sum(zone['io_link_sensors'] for zone in zones),
+                "total_analog_inputs": sum(zone['analog_inputs'] for zone in zones),
+                "total_analog_outputs": sum(zone['analog_outputs'] for zone in zones),
+            }
 
-                        zones.append({
-                            'zone_id': i + 1,
-                            'digital_inputs': di,
-                            'digital_outputs': do,
-                            'io_link_sensors': iol,
-                            'analog_inputs': ai,   # NUEVO
-                            'analog_outputs': ao   # NUEVO
-                        })
+            req["total_inputs"] = req["total_digital_inputs"] + req["total_io_link_sensors"] + req["total_analog_inputs"]
+            req["total_outputs"] = req["total_digital_outputs"] + req["total_analog_outputs"]
 
-                # Parámetros adicionales
-                    st.header("4. Parámetros Adicionales")
+            # Mostrar resumen
+            st.header("5. Resumen de Configuración")
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    distance_m = st.number_input("Distancia máxima entre zonas (m):", min_value=0.0, value=10.0)
-                with col2:
-                    connector_type = st.selectbox(
-                        "Tipo de conector:",
-                        ["", "M8", "M12", "mixto"],
-                        help="Deja vacío si es indiferente"
-                    )
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Configuración de Zonas:**")
+                st.write(f"- Número de zonas: {req['num_zones']}")
+                st.write(f"- Zonas iguales: {'Sí' if req['zones_equal'] else 'No'}")
+                st.write(f"- Distancia máxima: {req['distance_m']} m")
+                if connector_type:
+                    st.write(f"- Tipo de conector: {connector_type}")
 
-                # Preparar requerimientos
-                req = {
-                    "zones": zones,
-                    "num_zones": num_zones,
-                    "zones_equal": zones_equal,
-                    "distance_m": distance_m,
-                    "connector_type": connector_type,
-                    "total_digital_inputs": sum(zone['digital_inputs'] for zone in zones),
-                    "total_digital_outputs": sum(zone['digital_outputs'] for zone in zones),
-                    "total_io_link_sensors": sum(zone['io_link_sensors'] for zone in zones),
-                    "total_analog_inputs": sum(zone['analog_inputs'] for zone in zones),    # NUEVO
-                    "total_analog_outputs": sum(zone['analog_outputs'] for zone in zones),  # NUEVO
-                }
+            with col2:
+                st.write("**Totales:**")
+                st.write(f"- Entradas digitales: {req['total_digital_inputs']}")
+                st.write(f"- Salidas digitales: {req['total_digital_outputs']}")
+                st.write(f"- Sensores IO-Link: {req['total_io_link_sensors']}")
+                st.write(f"- Entradas analógicas: {req['total_analog_inputs']}")
+                st.write(f"- Salidas analógicas: {req['total_analog_outputs']}")
 
-                req["total_inputs"] = req["total_digital_inputs"] + req["total_io_link_sensors"] + req["total_analog_inputs"]  # MODIFICAR
-                req["total_outputs"] = req["total_digital_outputs"] + req["total_analog_outputs"]  # MODIFICAR
-
-                # Mostrar resumen
-                st.header("5. Resumen de Configuración")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Configuración de Zonas:**")
-                    st.write(f"- Número de zonas: {req['num_zones']}")
-                    st.write(f"- Zonas iguales: {'Sí' if req['zones_equal'] else 'No'}")
-                    st.write(f"- Distancia máxima: {req['distance_m']} m")
-                    if connector_type:
-                        st.write(f"- Tipo de conector: {connector_type}")
-
-                with col2:
-                    st.write("**Totales:**")
-                    st.write(f"- Entradas digitales: {req['total_digital_inputs']}")
-                    st.write(f"- Salidas digitales: {req['total_digital_outputs']}")
-                    st.write(f"- Sensores IO-Link: {req['total_io_link_sensors']}")
-                    st.write(f"- Entradas analógicas: {req['total_analog_inputs']}")  # NUEVO
-                    st.write(f"- Salidas analógicas: {req['total_analog_outputs']}")  # NUEVO
-
-
-                # Detalles por zona si hay más de una
-                if req['num_zones'] > 1:
-                    st.write("**Detalle por zona:**")
-                    zone_data = []
-                    for zone in zones:
-                        zone_data.append({
+            # Detalles por zona si hay más de una
+            if req['num_zones'] > 1:
+                st.write("**Detalle por zona:**")
+                zone_data = []
+                for zone in zones:
+                    zone_data.append({
                         "Zona": zone['zone_id'],
                         "DI": zone['digital_inputs'],
                         "DO": zone['digital_outputs'],
                         "IO-Link": zone['io_link_sensors'],
-                        "AI": zone['analog_inputs'],    # NUEVO
-                        "AO": zone['analog_outputs']    # NUEVO
+                        "AI": zone['analog_inputs'],
+                        "AO": zone['analog_outputs']
                     })
-                    st.dataframe(pd.DataFrame(zone_data), hide_index=True)
+                st.dataframe(pd.DataFrame(zone_data), hide_index=True)
 
-                # Botón para calcular
-                if st.button("🔍 Calcular Soluciones", type="primary"):
-                    # Verificar que hay algo que calcular
-                    if req["total_inputs"] == 0 and req["total_outputs"] == 0:
-                        st.warning("⚠️ Debes especificar al menos una entrada o salida para calcular")
-                        return
+            # Botón para calcular
+            if st.button("🔍 Calcular Soluciones", type="primary"):
+                # Verificar que hay algo que calcular
+                if req["total_inputs"] == 0 and req["total_outputs"] == 0:
+                    st.warning("⚠️ Debes especificar al menos una entrada o salida para calcular")
+                    return
 
-                    with st.spinner("Calculando soluciones..."):
-                        # Enumerar soluciones
-                        solutions, rejected_families = enumerate_solutions(req, df, familias_info_filtered)
+                with st.spinner("Calculando soluciones..."):
+                    # Enumerar soluciones con protocolo seleccionado
+                    solutions, rejected_families = enumerate_solutions(req, df, familias_info_filtered, selected_protocol)
 
-                        if not solutions:
-                            st.error("❌ No se encontraron soluciones válidas")
+                    if not solutions:
+                        st.error("❌ No se encontraron soluciones válidas")
 
-                            if rejected_families:
-                                st.subheader("Familias descartadas:")
-                                for rejection in rejected_families:
-                                    st.write(f"- **{rejection['Familia']}**: {rejection['Razon']}")
-                            return
-
-                        # Mostrar resultados
-                        st.header("6. Soluciones Encontradas")
-                        st.success(f"✅ Se encontraron {len(solutions)} solución(es)")
-
-                        # Mostrar las mejores 3 soluciones
-                        for i, sol in enumerate(solutions[:3]):
-                            with st.expander(f"Solución {i+1}: {sol['Familia']} - {sol['Precio_total']}€", expanded=(i==0)):
-                                col1, col2 = st.columns(2)
-
-                                with col1:
-                                    st.write("**Información General:**")
-                                    st.write(f"- Familia: {sol['Familia']}")
-                                    st.write(f"- Precio Total: {sol['Precio_total']}€")
-                                    st.write(f"- Módulos Totales: {sol['Modulos_totales']}")
-                                    st.write(f"- Protocolo: {selected_protocol}")
-
-                                with col2:
-                                    st.write("**Componentes:**")
-                                    for ref, qty in sol['Componentes']:
-                                        st.write(f"- {ref} x{qty}")
-
-                                # Distribución por zonas si hay más de una
-                                if req['num_zones'] > 1:
-                                    st.write("**Distribución por zonas:**")
-                                    for zone_data in sol['Distribucion_zonas']:
-                                        zone_id = zone_data['zone_id']
-                                        zone_modules = zone_data['modules']
-                                        zone_count = zone_data['modules_count']
-
-                                        st.write(f"Zona {zone_id} ({zone_count} módulos):")
-                                        for mod, qty in zone_modules:
-                                            st.write(f"  - {mod['Referencia']} x{qty}")
-
-                                # Botón para generar reporte
-                                if st.button(f"📄 Generar Reporte", key=f"report_{i}"):
-                                    report = generate_solution_report(req, sol, selected_protocol)
-
-                                    # Crear archivo de descarga
-                                    report_bytes = report.encode('utf-8')
-                                    filename = f"smc_solution_{sol['Familia'].lower()}_{int(sol['Precio_total'])}.txt"
-
-                                    st.download_button(
-                                        label="💾 Descargar Reporte",
-                                        data=report_bytes,
-                                        file_name=filename,
-                                        mime="text/plain",
-                                        key=f"download_{i}"
-                                    )
-
-                        # Mostrar familias rechazadas si las hay
                         if rejected_families:
                             st.subheader("Familias descartadas:")
-                            rejected_df = pd.DataFrame(rejected_families)
-                            st.dataframe(rejected_df, hide_index=True)
+                            for rejection in rejected_families:
+                                st.write(f"- **{rejection['Familia']}**: {rejection['Razon']}")
+                        return
 
-            except Exception as e:
-                st.error(f"❌ Error al procesar los archivos: {str(e)}")
-                st.write("Por favor, verifica que los archivos tienen el formato correcto.")
+                # Mostrar resultados
+                st.header("6. Soluciones Encontradas")
+                st.success(f"✅ Se encontraron {len(solutions)} solución(es)")
+
+                # Mostrar las mejores 3 soluciones
+                for i, sol in enumerate(solutions[:3]):
+                    with st.expander(f"Solución {i+1}: {sol['Familia']} - {sol['Precio_total']}€", expanded=(i==0)):
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.write("**Información General:**")
+                            st.write(f"- Familia: {sol['Familia']}")
+                            st.write(f"- Precio Total: {sol['Precio_total']}€")
+                            st.write(f"- Módulos Totales: {sol['Modulos_totales']}")
+                            st.write(f"- Protocolo: {selected_protocol}")
+
+                        with col2:
+                            st.write("**Componentes:**")
+                            for ref, qty in sol['Componentes']:
+                                st.write(f"- {ref} x{qty}")
+
+                        # Distribución por zonas si hay más de una
+                        if req['num_zones'] > 1:
+                            st.write("**Distribución por zonas:**")
+                            for zone_data in sol['Distribucion_zonas']:
+                                zone_id = zone_data['zone_id']
+                                zone_modules = zone_data['modules']
+                                zone_count = zone_data['modules_count']
+
+                                st.write(f"Zona {zone_id} ({zone_count} módulos):")
+                                for mod, qty in zone_modules:
+                                    st.write(f"  - {mod['Referencia']} x{qty}")
+
+                        # Botón para generar reporte
+                        if st.button(f"📄 Generar Reporte", key=f"report_{i}"):
+                            report = generate_solution_report(req, sol, selected_protocol)
+
+                            # Crear archivo de descarga
+                            report_bytes = report.encode('utf-8')
+                            filename = f"smc_solution_{sol['Familia'].lower()}_{int(sol['Precio_total'])}.txt"
+
+                            st.download_button(
+                                label="💾 Descargar Reporte",
+                                data=report_bytes,
+                                file_name=filename,
+                                mime="text/plain",
+                                key=f"download_{i}"
+                            )
+
+                # Mostrar familias rechazadas si las hay
+                if rejected_families:
+                    st.subheader("Familias descartadas:")
+                    rejected_df = pd.DataFrame(rejected_families)
+                    st.dataframe(rejected_df, hide_index=True)
+
+        except Exception as e:
+            st.error(f"❌ Error al procesar los archivos: {str(e)}")
+            st.write("Por favor, verifica que los archivos tienen el formato correcto.")
 
     else:
-            st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
-
-def login():
-    st.title("Iniciar sesión")
-    username = st.text_input("Usuario")
-    password = st.text_input("Contraseña", type="password")
-
-    if st.button("Entrar"):
-        if username == "admin" and password == "1234":
-            st.session_state.authenticated = True
-            st.session_state.current_user = username
-            st.session_state.login_success = True  # Nueva bandera
-        else:
-            st.error("Credenciales incorrectas")
-
-st.sidebar.title("Menú de Navegación")
-menu = st.sidebar.selectbox("Selecciona una sección:", ["Configurador", "Conversor", "Tiempo de Ciclo"])
+        st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
 
 def mostrar_conversor():
     st.title("🔄 Conversor Fuerza-Par")
