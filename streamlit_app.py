@@ -251,19 +251,27 @@ def filter_families_by_protocol(df, familias_info, fam_protocols, selected_proto
     return filtered_df, filtered_limits, compatible_families
 
 def safe_get(mod, key, default=0):
-    """Acceso seguro con debug detallado"""
+    """Acceso seguro a propiedades de un módulo sin romper si el tipo no es compatible"""
     try:
+        # Caso 1: diccionario normal
         if isinstance(mod, dict):
             return mod.get(key, default)
-        elif isinstance(mod, pd.Series):  # Fila de DataFrame
+
+        # Caso 2: fila de DataFrame (Series)
+        elif isinstance(mod, pd.Series):
             if key in mod.index:
                 value = mod[key]
                 if pd.isna(value):
                     return default
                 return value
             return default
-        elif hasattr(mod, "__getitem__") and not isinstance(mod, (int, float, str)):
-            # Evitar enteros, floats o strings
+
+        # Caso 3: evitar tipos primitivos directamente
+        elif isinstance(mod, (int, float, str, bool, type(None))):
+            return default
+
+        # Caso 4: objetos indexables (listas, arrays, etc.)
+        elif hasattr(mod, "__getitem__"):
             try:
                 if key in mod:
                     value = mod[key]
@@ -272,12 +280,15 @@ def safe_get(mod, key, default=0):
                     return value
             except Exception:
                 return default
+
+        # Caso 5: cualquier otro tipo raro
         else:
-            # Para ints, floats, strings u otros tipos simples
             return default
+
     except Exception as e:
-        print(f"ERROR en safe_get con key '{key}': {e}, tipo: {type(mod)}")
+        print(f"ERROR en safe_get con key '{key}': {e}, tipo: {type(mod)} - valor: {mod}")
         return default
+
 
 def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed):
     """Calcula los módulos necesarios para una zona específica"""
@@ -936,7 +947,7 @@ def mostrar_configurador():
             fam_protocols = {familia: info["protocolos"] for familia, info in familias_info.items()}
 
             # Filtrar por protocolo
-            df, familias_info_filtered, compatible_families = filter_families_by_protocol(
+            df, familias_limits, compatible_families = filter_families_by_protocol(
                 df, familias_info, fam_protocols, selected_protocol
             )
 
@@ -1080,7 +1091,7 @@ def mostrar_configurador():
 
                 with st.spinner("Calculando soluciones..."):
                     # Enumerar soluciones con protocolo seleccionado
-                    solutions, rejected_families = enumerate_solutions(req, df, familias_info_filtered, selected_protocol)
+                    solutions, rejected_families = enumerate_solutions(req, df, familias_info, selected_protocol)
 
                     if not solutions:
                         st.error("❌ No se encontraron soluciones válidas")
