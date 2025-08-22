@@ -121,65 +121,109 @@ def load_catalog_with_limits_web(catalog_file, families_file):
     return mod_df, familias_info
 
 def process_module_data(df):
-    """Procesa y limpia los datos de módulos del DataFrame"""
-    # Si los datos están en formato horizontal, los transponemos
-    if 'Columna' in df.columns or df.iloc[0, 0] == 'Columna':
+    """
+    Procesa el archivo de catálogo horizontal (Configs.xlsx)
+    y lo convierte en un DataFrame tabular estándar.
+    Cada fila será un módulo, con columnas limpias.
+    """
+
+    # Detectar si está en formato horizontal
+    if df.iloc[0, 0] == "Familia" or "Columna" in df.columns:
+        # Transponer
         df = df.T
-        df.columns = df.iloc[0]
-        df = df[1:]
+        df.columns = df.iloc[0]   # la primera fila transpuesta son los nombres de columnas
+        df = df.drop(df.index[0]) # eliminar esa fila de nombres
         df.reset_index(drop=True, inplace=True)
 
-    # Renombrar columnas para consistencia
+    # Normalizar nombres de columnas
     column_mapping = {
-        'Columna': 'Referencia',
-        'Familia': 'Familia',
-        'Referencia': 'Referencia',
-        'Tipo': 'Tipo',
-        'Entradas_DI': 'Entradas_DI',
-        'Salidas_DO': 'Salidas_DO',
-        'IO_Link_Ports': 'IO_Link_Ports',
-        'Analog_In': 'Analog_In',
-        'Analog_Out': 'Analog_Out',
-        'Conector': 'Conector',
-        'Wireless': 'Wireless',
-        'Polaridad': 'Polaridad',
-        'Precio': 'Precio'
+        "Familia": "Familia",
+        "Referencia": "Referencia",
+        "Tipo": "Tipo",
+        "Entradas_DI": "Entradas_DI",
+        "Salidas_DO": "Salidas_DO",
+        "IO_Link_Ports": "IO_Link_Ports",
+        "Analog_In": "Analog_In",
+        "Analog_Out": "Analog_Out",
+        "Conector": "Conector",
+        "Wireless": "Wireless",
+        "Polaridad": "Polaridad",
+        "Precio": "Precio"
     }
 
-    for old_name, new_name in column_mapping.items():
-        if old_name in df.columns:
-            df.rename(columns={old_name: new_name}, inplace=True)
+    df = df.rename(columns=column_mapping)
 
-    if 'Referencia' not in df.columns:
-        if df.index.name:
-            df['Referencia'] = df.index
-        else:
-            df['Referencia'] = df.iloc[:, 0]
+    # Asegurar columnas necesarias
+    required = ["Referencia", "Familia", "Tipo", "Entradas_DI", "Salidas_DO", 
+                "IO_Link_Ports", "Analog_In", "Analog_Out", "Precio", "Wireless", "Polaridad"]
 
-    df = df.fillna(0)
-
-    # Convertir columnas numéricas
-    numeric_columns = ["Entradas_DI", "Salidas_DO", "IO_Link_Ports", "Analog_In", "Analog_Out", "Precio"]
-    for col in numeric_columns:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-    # Convertir columnas booleanas
-    if 'Wireless' in df.columns:
-        df['Wireless'] = df['Wireless'].astype(str).str.upper().isin(['TRUE', 'YES', '1', 'SI'])
-    else:
-        df['Wireless'] = False
-
-    # Asegurar que las columnas necesarias existen
-    required_columns = ['Referencia', 'Familia', 'Tipo', 'Entradas_DI', 'Salidas_DO', 'IO_Link_Ports', 'Precio']
-    for col in required_columns:
+    for col in required:
         if col not in df.columns:
-            if col == 'Familia':
-                df[col] = 'EX600'
-            elif col == 'Tipo':
-                df[col] = 'DI'
-            else:
+            if col in ["Familia"]: 
+                df[col] = "EX600"
+            elif col in ["Tipo"]: 
+                df[col] = "DI"
+            elif col in ["Wireless"]: 
+                df[col] = False
+            elif col in ["Polaridad"]:
+                df[col] = "NPN"
+            elif col in ["Referencia"]:
+                df[col] = f"MOD_{df.index}"
+            else: 
                 df[col] = 0
+
+    # Convertir numéricos con mejor manejo de errores
+    numeric_cols = ["Entradas_DI", "Salidas_DO", "IO_Link_Ports", "Analog_In", "Analog_Out", "Precio"]
+    for col in numeric_cols:
+        if col in df.columns:
+            # Convertir a string primero para limpiar
+            df[col] = df[col].astype(str).str.strip()
+            # Reemplazar valores vacíos o 'nan' con '0'
+            df[col] = df[col].replace(['', 'nan', 'None', 'NaN', 'null'], '0')
+            # Convertir a numérico
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            # Asegurar que son enteros para todo excepto Precio
+            if col != "Precio":
+                df[col] = df[col].astype(int)
+            else:
+                # Para precio, asegurar que sea float positivo
+                df[col] = df[col].astype(float)
+                df[col] = df[col].abs()  # Asegurar valores positivos
+
+    # Convertir Wireless a booleano con mejor manejo
+    if "Wireless" in df.columns:
+        df["Wireless"] = df["Wireless"].astype(str).str.strip().str.upper()
+        df["Wireless"] = df["Wireless"].isin(["TRUE", "YES", "1", "SI", "SÍ"])
+    else:
+        df["Wireless"] = False
+
+    # Limpiar columna Polaridad
+    if "Polaridad" in df.columns:
+        df["Polaridad"] = df["Polaridad"].astype(str).str.strip().str.upper()
+        # Reemplazar valores vacíos con NPN por defecto
+        df["Polaridad"] = df["Polaridad"].replace(['', 'NAN', 'NONE', 'NULL'], 'NPN')
+    else:
+        df["Polaridad"] = "NPN"
+
+    # Limpiar columna Referencia
+    if "Referencia" in df.columns:
+        df["Referencia"] = df["Referencia"].astype(str).str.strip()
+        # Reemplazar referencias vacías
+        mask_empty_ref = df["Referencia"].isin(['', 'nan', 'None', 'NaN', 'null'])
+        df.loc[mask_empty_ref, "Referencia"] = df.loc[mask_empty_ref].apply(
+            lambda row: f"MOD_{row.name}", axis=1
+        )
+
+    # Limpiar columna Familia
+    if "Familia" in df.columns:
+        df["Familia"] = df["Familia"].astype(str).str.strip()
+        df["Familia"] = df["Familia"].replace(['', 'nan', 'None', 'NaN', 'null'], 'EX600')
+
+    # Eliminar filas completamente vacías o inválidas
+    df = df.dropna(how='all')
+    
+    # Resetear índices después de la limpieza
+    df = df.reset_index(drop=True)
 
     return df
 
@@ -206,34 +250,63 @@ def filter_families_by_protocol(df, familias_info, fam_protocols, selected_proto
 
     return filtered_df, filtered_limits, compatible_families
 
+def safe_get(mod, key, default=0):
+    """Acceso seguro con debug detallado"""
+    try:
+        if isinstance(mod, dict):
+            return mod.get(key, default)
+        elif isinstance(mod, pd.Series):  # Fila de DataFrame
+            if key in mod.index:
+                value = mod[key]
+                if pd.isna(value):
+                    return default
+                return value
+            return default
+        elif hasattr(mod, "__getitem__") and not isinstance(mod, (int, float, str)):
+            # Evitar enteros, floats o strings
+            try:
+                if key in mod:
+                    value = mod[key]
+                    if pd.isna(value):
+                        return default
+                    return value
+            except Exception:
+                return default
+        else:
+            # Para ints, floats, strings u otros tipos simples
+            return default
+    except Exception as e:
+        print(f"ERROR en safe_get con key '{key}': {e}, tipo: {type(mod)}")
+        return default
+
 def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed):
     """Calcula los módulos necesarios para una zona específica"""
     if di_needed <= 0 and do_needed <= 0 and iol_needed <= 0 and ai_needed <= 0 and ao_needed <= 0:
         return [], 0, None
 
     def calculate_module_priority(mod):
-        priority = 0
-        # Verificar si mod es una Serie de pandas y tiene el índice Polaridad
-        if hasattr(mod, 'index') and 'Polaridad' in mod.index:
-            if str(mod['Polaridad']).upper() == 'PNP':
-                priority += 0
-            else:
-                priority += 1000
-        elif isinstance(mod, dict) and 'Polaridad' in mod:
-            if str(mod['Polaridad']).upper() == 'PNP':
-                priority += 0
-            else:
-                priority += 1000
-        
-        # Acceso seguro al precio
-        if hasattr(mod, 'index') and 'Precio' in mod.index:
-            priority += mod['Precio']
-        elif isinstance(mod, dict) and 'Precio' in mod:
-            priority += mod['Precio']
-        else:
-            priority += 1000  # Precio por defecto si no se encuentra
+        """Calcula la prioridad del módulo para optimizar selección"""
+        try:
+            priority = 0
             
-        return priority
+            # Verificar polaridad
+            polaridad = safe_get(mod, 'Polaridad', '')
+            if str(polaridad).upper() == 'PNP':
+                priority += 0
+            else:
+                priority += 1000
+            
+            # Agregar precio
+            precio = safe_get(mod, 'Precio', 1000)
+            if precio is None or pd.isna(precio):
+                precio = 1000
+            
+            priority += float(precio)
+            
+            return priority
+        except Exception as e:
+            print(f"Error calculando prioridad: {e}")
+            return 2000  # Prioridad alta por defecto en caso de error
 
     all_mods = fam_df.copy()
     all_mods['priority'] = all_mods.apply(calculate_module_priority, axis=1)
@@ -247,35 +320,24 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
     mixed_solutions = []
 
     for _, mod in all_mods.iterrows():
-        # Acceso seguro a las capacidades del módulo
-        di_cap = mod.get('Entradas_DI', 0) if hasattr(mod, 'get') else mod['Entradas_DI']
-        do_cap = mod.get('Salidas_DO', 0) if hasattr(mod, 'get') else mod['Salidas_DO']
-        iol_cap = mod.get('IO_Link_Ports', 0) if hasattr(mod, 'get') else mod['IO_Link_Ports']
-        ai_cap = mod.get('Analog_In', 0) if hasattr(mod, 'get') else mod['Analog_In']
-        ao_cap = mod.get('Analog_Out', 0) if hasattr(mod, 'get') else mod['Analog_Out']
+        di_cap = safe_get(mod, 'Entradas_DI')
+        do_cap = safe_get(mod, 'Salidas_DO')
+        iol_cap = safe_get(mod, 'IO_Link_Ports')
+        ai_cap = safe_get(mod, 'Analog_In')
+        ao_cap = safe_get(mod, 'Analog_Out')
 
         if di_cap <= 0 and do_cap <= 0 and iol_cap <= 0 and ai_cap <= 0 and ao_cap <= 0:
             continue
 
-        # Calcular cobertura para módulos con múltiples capacidades
+        # capacidades mixtas
         capabilities = []
-        if di_cap > 0:
-            capabilities.append(('di', di_needed, di_cap))
-        if do_cap > 0:
-            capabilities.append(('do', do_needed, do_cap))
-        if ai_cap > 0:
-            capabilities.append(('ai', ai_needed, ai_cap))
-        if ao_cap > 0:
-            capabilities.append(('ao', ao_needed, ao_cap))
+        if di_cap > 0: capabilities.append(('di', di_needed, di_cap))
+        if do_cap > 0: capabilities.append(('do', do_needed, do_cap))
+        if ai_cap > 0: capabilities.append(('ai', ai_needed, ai_cap))
+        if ao_cap > 0: capabilities.append(('ao', ao_needed, ao_cap))
 
-        if len(capabilities) > 1:  # Módulo mixto
-            needed_quantities = []
-            for cap_type, needed, capacity in capabilities:
-                if needed > 0:
-                    needed_quantities.append(ceil(needed / capacity))
-                else:
-                    needed_quantities.append(0)
-            
+        if len(capabilities) > 1:
+            needed_quantities = [ceil(needed / capacity) for cap_type, needed, capacity in capabilities if needed > 0]
             needed_mixed = max(needed_quantities) if needed_quantities else 0
 
             if needed_mixed > 0:
@@ -290,8 +352,8 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
                 remaining_ai = max(0, ai_needed - ai_covered)
                 remaining_ao = max(0, ao_needed - ao_covered)
 
-                precio_mod = mod.get('Precio', 0) if hasattr(mod, 'get') else mod['Precio']
-                
+                precio_mod = safe_get(mod, 'Precio')
+
                 mixed_solutions.append({
                     'modules': [(mod, needed_mixed)],
                     'remaining_di': remaining_di,
@@ -312,62 +374,62 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         # Completar DI restantes
         if mix_sol['remaining_di'] > 0:
             di_mods = all_mods[all_mods['Entradas_DI'] > 0]
-            for _, mod in di_mods.iterrows():
-                di_capacity = mod.get('Entradas_DI', 0) if hasattr(mod, 'get') else mod['Entradas_DI']
+            if not di_mods.empty:
+                best_di = di_mods.iloc[0]
+                di_capacity = safe_get(best_di, 'Entradas_DI')
                 needed = ceil(mix_sol['remaining_di'] / di_capacity)
-                precio_mod = mod.get('Precio', 0) if hasattr(mod, 'get') else mod['Precio']
-                total_modules.append((mod, needed))
+                precio_mod = safe_get(best_di, 'Precio')
+                total_modules.append((best_di, needed))
                 total_cost += precio_mod * needed
                 total_count += needed
-                break
 
         # Completar DO restantes
         if mix_sol['remaining_do'] > 0:
             do_mods = all_mods[all_mods['Salidas_DO'] > 0]
-            for _, mod in do_mods.iterrows():
-                do_capacity = mod.get('Salidas_DO', 0) if hasattr(mod, 'get') else mod['Salidas_DO']
+            if not do_mods.empty:
+                best_do = do_mods.iloc[0]
+                do_capacity = safe_get(best_do, 'Salidas_DO')
                 needed = ceil(mix_sol['remaining_do'] / do_capacity)
-                precio_mod = mod.get('Precio', 0) if hasattr(mod, 'get') else mod['Precio']
-                total_modules.append((mod, needed))
+                precio_mod = safe_get(best_do, 'Precio')
+                total_modules.append((best_do, needed))
                 total_cost += precio_mod * needed
                 total_count += needed
-                break
 
         # Completar IO-Link
         if mix_sol['remaining_iol'] > 0:
             iol_mods = all_mods[all_mods['IO_Link_Ports'] > 0]
-            for _, mod in iol_mods.iterrows():
-                iol_capacity = mod.get('IO_Link_Ports', 0) if hasattr(mod, 'get') else mod['IO_Link_Ports']
+            if not iol_mods.empty:
+                best_iol = iol_mods.iloc[0]
+                iol_capacity = safe_get(best_iol, 'IO_Link_Ports')
                 needed = ceil(mix_sol['remaining_iol'] / iol_capacity)
-                precio_mod = mod.get('Precio', 0) if hasattr(mod, 'get') else mod['Precio']
-                total_modules.append((mod, needed))
+                precio_mod = safe_get(best_iol, 'Precio')
+                total_modules.append((best_iol, needed))
                 total_cost += precio_mod * needed
                 total_count += needed
-                break
 
         # Completar AI restantes
         if mix_sol['remaining_ai'] > 0:
             ai_mods = all_mods[all_mods['Analog_In'] > 0]
-            for _, mod in ai_mods.iterrows():
-                ai_capacity = mod.get('Analog_In', 0) if hasattr(mod, 'get') else mod['Analog_In']
+            if not ai_mods.empty:
+                best_ai = ai_mods.iloc[0]
+                ai_capacity = safe_get(best_ai, 'Analog_In')
                 needed = ceil(mix_sol['remaining_ai'] / ai_capacity)
-                precio_mod = mod.get('Precio', 0) if hasattr(mod, 'get') else mod['Precio']
-                total_modules.append((mod, needed))
+                precio_mod = safe_get(best_ai, 'Precio')
+                total_modules.append((best_ai, needed))
                 total_cost += precio_mod * needed
                 total_count += needed
-                break
 
         # Completar AO restantes
         if mix_sol['remaining_ao'] > 0:
             ao_mods = all_mods[all_mods['Analog_Out'] > 0]
-            for _, mod in ao_mods.iterrows():
-                ao_capacity = mod.get('Analog_Out', 0) if hasattr(mod, 'get') else mod['Analog_Out']
+            if not ao_mods.empty:
+                best_ao = ao_mods.iloc[0]
+                ao_capacity = safe_get(best_ao, 'Analog_Out')
                 needed = ceil(mix_sol['remaining_ao'] / ao_capacity)
-                precio_mod = mod.get('Precio', 0) if hasattr(mod, 'get') else mod['Precio']
-                total_modules.append((mod, needed))
+                precio_mod = safe_get(best_ao, 'Precio')
+                total_modules.append((best_ao, needed))
                 total_cost += precio_mod * needed
                 total_count += needed
-                break
 
         # Evaluar si esta solución es mejor
         if (total_count < best_modules_count or
@@ -376,7 +438,7 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
             best_cost = total_cost
             best_modules_count = total_count
 
-    # Estrategia con módulos separados (como respaldo)
+    # Estrategia con módulos separados (respaldo)
     separate_modules = []
     separate_cost = 0
     separate_count = 0
@@ -386,9 +448,9 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         di_mods = all_mods[all_mods['Entradas_DI'] > 0]
         if not di_mods.empty:
             best_di = di_mods.iloc[0]
-            di_capacity = best_di.get('Entradas_DI', 0) if hasattr(best_di, 'get') else best_di['Entradas_DI']
+            di_capacity = safe_get(best_di, 'Entradas_DI')
             needed = ceil(di_needed / di_capacity)
-            precio_mod = best_di.get('Precio', 0) if hasattr(best_di, 'get') else best_di['Precio']
+            precio_mod = safe_get(best_di, 'Precio')
             separate_modules.append((best_di, needed))
             separate_cost += precio_mod * needed
             separate_count += needed
@@ -398,9 +460,9 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         do_mods = all_mods[all_mods['Salidas_DO'] > 0]
         if not do_mods.empty:
             best_do = do_mods.iloc[0]
-            do_capacity = best_do.get('Salidas_DO', 0) if hasattr(best_do, 'get') else best_do['Salidas_DO']
+            do_capacity = safe_get(best_do, 'Salidas_DO')
             needed = ceil(do_needed / do_capacity)
-            precio_mod = best_do.get('Precio', 0) if hasattr(best_do, 'get') else best_do['Precio']
+            precio_mod = safe_get(best_do, 'Precio')
             separate_modules.append((best_do, needed))
             separate_cost += precio_mod * needed
             separate_count += needed
@@ -410,9 +472,9 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         iol_mods = all_mods[all_mods['IO_Link_Ports'] > 0]
         if not iol_mods.empty:
             best_iol = iol_mods.iloc[0]
-            iol_capacity = best_iol.get('IO_Link_Ports', 0) if hasattr(best_iol, 'get') else best_iol['IO_Link_Ports']
+            iol_capacity = safe_get(best_iol, 'IO_Link_Ports')
             needed = ceil(iol_needed / iol_capacity)
-            precio_mod = best_iol.get('Precio', 0) if hasattr(best_iol, 'get') else best_iol['Precio']
+            precio_mod = safe_get(best_iol, 'Precio')
             separate_modules.append((best_iol, needed))
             separate_cost += precio_mod * needed
             separate_count += needed
@@ -422,9 +484,9 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         ai_mods = all_mods[all_mods['Analog_In'] > 0]
         if not ai_mods.empty:
             best_ai = ai_mods.iloc[0]
-            ai_capacity = best_ai.get('Analog_In', 0) if hasattr(best_ai, 'get') else best_ai['Analog_In']
+            ai_capacity = safe_get(best_ai, 'Analog_In')
             needed = ceil(ai_needed / ai_capacity)
-            precio_mod = best_ai.get('Precio', 0) if hasattr(best_ai, 'get') else best_ai['Precio']
+            precio_mod = safe_get(best_ai, 'Precio')
             separate_modules.append((best_ai, needed))
             separate_cost += precio_mod * needed
             separate_count += needed
@@ -434,9 +496,9 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         ao_mods = all_mods[all_mods['Analog_Out'] > 0]
         if not ao_mods.empty:
             best_ao = ao_mods.iloc[0]
-            ao_capacity = best_ao.get('Analog_Out', 0) if hasattr(best_ao, 'get') else best_ao['Analog_Out']
+            ao_capacity = safe_get(best_ao, 'Analog_Out')
             needed = ceil(ao_needed / ao_capacity)
-            precio_mod = best_ao.get('Precio', 0) if hasattr(best_ao, 'get') else best_ao['Precio']
+            precio_mod = safe_get(best_ao, 'Precio')
             separate_modules.append((best_ao, needed))
             separate_cost += precio_mod * needed
             separate_count += needed
@@ -452,34 +514,25 @@ def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, 
         return [], 0, "No se encontraron módulos compatibles"
 
     # Verificar cobertura total
-    total_di_covered = sum(
-        (mod.get('Entradas_DI', 0) if hasattr(mod, 'get') else mod['Entradas_DI']) * qty 
-        for mod, qty in best_solution
-    )
-    total_do_covered = sum(
-        (mod.get('Salidas_DO', 0) if hasattr(mod, 'get') else mod['Salidas_DO']) * qty 
-        for mod, qty in best_solution
-    )
-    total_iol_covered = sum(
-        (mod.get('IO_Link_Ports', 0) if hasattr(mod, 'get') else mod['IO_Link_Ports']) * qty 
-        for mod, qty in best_solution
-    )
-    total_ai_covered = sum(
-        (mod.get('Analog_In', 0) if hasattr(mod, 'get') else mod['Analog_In']) * qty 
-        for mod, qty in best_solution
-    )
-    total_ao_covered = sum(
-        (mod.get('Analog_Out', 0) if hasattr(mod, 'get') else mod['Analog_Out']) * qty 
-        for mod, qty in best_solution
-    )
+    total_di_covered = sum(safe_get(mod, 'Entradas_DI') * qty for mod, qty in best_solution)
+    total_do_covered = sum(safe_get(mod, 'Salidas_DO') * qty for mod, qty in best_solution)
+    total_iol_covered = sum(safe_get(mod, 'IO_Link_Ports') * qty for mod, qty in best_solution)
+    total_ai_covered = sum(safe_get(mod, 'Analog_In') * qty for mod, qty in best_solution)
+    total_ao_covered = sum(safe_get(mod, 'Analog_Out') * qty for mod, qty in best_solution)
 
-    # Verificar que la solución cubre los requerimientos
     if (total_di_covered < di_needed or
         total_do_covered < do_needed or
         total_iol_covered < iol_needed or
         total_ai_covered < ai_needed or
         total_ao_covered < ao_needed):
-        return [], 0, f"No se puede cubrir los requerimientos (DI: {total_di_covered}/{di_needed}, DO: {total_do_covered}/{do_needed}, IO-Link: {total_iol_covered}/{iol_needed}, AI: {total_ai_covered}/{ai_needed}, AO: {total_ao_covered}/{ao_needed})"
+        return [], 0, (
+            f"No se puede cubrir los requerimientos "
+            f"(DI: {total_di_covered}/{di_needed}, "
+            f"DO: {total_do_covered}/{do_needed}, "
+            f"IO-Link: {total_iol_covered}/{iol_needed}, "
+            f"AI: {total_ai_covered}/{ai_needed}, "
+            f"AO: {total_ao_covered}/{ao_needed})"
+        )
 
     return best_solution, best_modules_count, None
 
@@ -543,7 +596,7 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
             zone_wireless_modules = []
             
             for mod, qty in zone_solution:
-                if mod.get('Wireless', False):
+                if safe_get(mod, "Wireless", False):
                     has_wireless_zones = True
                     zone_wireless_modules.append((mod, qty, zone_id))
                     wireless_modules.append((mod, qty, zone_id))
@@ -603,7 +656,7 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
         module_totals = {}
         for zone_data in zone_modules:
             for mod, qty in zone_data['modules']:
-                ref = mod['Referencia']
+                ref = safe_get(mod, 'Referencia')
                 if ref in module_totals:
                     module_totals[ref]['quantity'] += qty
                 else:
@@ -615,7 +668,7 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
         # Agregar wireless
         wireless_components = {}
         for mod, qty, zone_id in wireless_modules:
-            ref = mod['Referencia']
+            ref = safe_get(mod, 'Referencia')
             if ref in wireless_components:
                 wireless_components[ref]['quantity'] += qty
                 wireless_components[ref]['zones'].append(zone_id)
@@ -631,13 +684,13 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
             mod = data['module']
             qty = data['quantity']
             components.append((ref, qty))
-            price += mod['Precio'] * qty
+            price += safe_get(mod, 'Precio') * qty
 
         for ref, data in wireless_components.items():
             mod = data['module']
             qty = data['quantity']
             components.append((ref, qty))
-            price += mod['Precio'] * qty
+            price += safe_get(mod, 'Precio') * qty
 
         solutions.append({
             "Familia": fam,
