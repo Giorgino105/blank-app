@@ -72,6 +72,18 @@ def load_family_data(file) -> dict:
     row_protocol  = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("protocol")][0]
     row_precio    = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("precio")][0]
     row_maxmods   = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("max_modulos")][0]
+    
+    # NUEVAS FILAS PARA EXW1 Y EX500
+    try:
+        row_maxremotos = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("max_remotos")][0]
+    except:
+        row_maxremotos = None
+    
+    try:
+        row_senales_rama = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("señales_por_rama") | 
+                                   df.iloc[:, 0].astype(str).str.lower().str.contains("senales_por_rama")][0]
+    except:
+        row_senales_rama = None
 
     familias_data = {}
 
@@ -91,12 +103,25 @@ def load_family_data(file) -> dict:
         except:
             max_modulos = 8
 
+        # NUEVOS CAMPOS
+        try:
+            max_remotos = int(df.iloc[row_maxremotos, col]) if row_maxremotos is not None else 0
+        except:
+            max_remotos = 0
+            
+        try:
+            senales_por_rama = int(df.iloc[row_senales_rama, col]) if row_senales_rama is not None else 0
+        except:
+            senales_por_rama = 0
+
         if familia and familia.lower() not in ["nan", "none", ""]:
             if familia not in familias_data:
                 familias_data[familia] = {
                     "protocolos": [],
                     "cabeceras": [],
-                    "max_modulos": max_modulos
+                    "max_modulos": max_modulos,
+                    "max_remotos": max_remotos,
+                    "senales_por_rama": senales_por_rama
                 }
 
             # Añadir protocolo a la lista si no está
@@ -289,35 +314,163 @@ def safe_get(mod, key, default=0):
         print(f"ERROR en safe_get con key '{key}': {e}, tipo: {type(mod)} - valor: {mod}")
         return default
 
-
-def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed):
-    """Calcula los módulos necesarios para una zona específica"""
+def calculate_zone_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed, familia_info, familia_name):
+    """Calcula los módulos/remotos/ramas necesarios para una zona específica"""
     if di_needed <= 0 and do_needed <= 0 and iol_needed <= 0 and ai_needed <= 0 and ao_needed <= 0:
         return [], 0, None
 
+    # DETERMINAR TIPO DE FAMILIA
+    max_modulos = familia_info.get("max_modulos", 0)
+    max_remotos = familia_info.get("max_remotos", 0)
+    senales_por_rama = familia_info.get("senales_por_rama", 0)
+
+    # FAMILIA EXW1 (WIRELESS - REMOTOS)
+    if max_remotos > 0 and max_modulos == 0:
+        return calculate_wireless_remotos(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed, max_remotos)
+    
+    # FAMILIA EX500 (RAMAS)
+    elif senales_por_rama > 0 and max_modulos == 0:
+        return calculate_ramas(di_needed, do_needed, iol_needed, ai_needed, ao_needed, senales_por_rama)
+    
+    # FAMILIAS TRADICIONALES (MÓDULOS)
+    else:
+        return calculate_traditional_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed)
+
+def calculate_wireless_remotos(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed, max_remotos):
+    """Calcula remotos necesarios para EXW1"""
+    
     def calculate_module_priority(mod):
-        """Calcula la prioridad del módulo para optimizar selección"""
         try:
             priority = 0
-            
-            # Verificar polaridad
             polaridad = safe_get(mod, 'Polaridad', '')
             if str(polaridad).upper() == 'PNP':
                 priority += 0
             else:
                 priority += 1000
             
-            # Agregar precio
             precio = safe_get(mod, 'Precio', 1000)
             if precio is None or pd.isna(precio):
                 precio = 1000
             
             priority += float(precio)
+            return priority
+        except Exception as e:
+            return 2000
+
+    all_mods = fam_df.copy()
+    all_mods['priority'] = all_mods.apply(calculate_module_priority, axis=1)
+    all_mods = all_mods.sort_values('priority')
+
+    best_solution = None
+    best_cost = float('inf')
+    best_remotos_count = float('inf')
+
+    # Probar diferentes combinaciones de remotos
+    for _, mod in all_mods.iterrows():
+        di_cap = safe_get(mod, 'Entradas_DI')
+        do_cap = safe_get(mod, 'Salidas_DO')
+        iol_cap = safe_get(mod, 'IO_Link_Ports')
+        ai_cap = safe_get(mod, 'Analog_In')
+        ao_cap = safe_get(mod, 'Analog_Out')
+
+        if di_cap <= 0 and do_cap <= 0 and iol_cap <= 0 and ai_cap <= 0 and ao_cap <= 0:
+            continue
+
+        # Calcular cuántos remotos de este tipo necesitamos
+        remotos_needed = []
+        
+        if di_needed > 0 and di_cap > 0:
+            remotos_needed.append(math.ceil(di_needed / di_cap))
+        if do_needed > 0 and do_cap > 0:
+            remotos_needed.append(math.ceil(do_needed / do_cap))
+        if iol_needed > 0 and iol_cap > 0:
+            remotos_needed.append(math.ceil(iol_needed / iol_cap))
+        if ai_needed > 0 and ai_cap > 0:
+            remotos_needed.append(math.ceil(ai_needed / ai_cap))
+        if ao_needed > 0 and ao_cap > 0:
+            remotos_needed.append(math.ceil(ao_needed / ao_cap))
+
+        if not remotos_needed:
+            continue
+
+        needed = max(remotos_needed)
+        
+        if needed > max_remotos:
+            continue
+
+        # Verificar si este remoto puede cubrir todas las necesidades
+        total_di_covered = needed * di_cap
+        total_do_covered = needed * do_cap
+        total_iol_covered = needed * iol_cap
+        total_ai_covered = needed * ai_cap
+        total_ao_covered = needed * ao_cap
+
+        if (total_di_covered >= di_needed and
+            total_do_covered >= do_needed and
+            total_iol_covered >= iol_needed and
+            total_ai_covered >= ai_needed and
+            total_ao_covered >= ao_needed):
             
+            precio_mod = safe_get(mod, 'Precio')
+            total_cost = precio_mod * needed
+            
+            if needed < best_remotos_count or (needed == best_remotos_count and total_cost < best_cost):
+                best_solution = [(mod, needed)]
+                best_cost = total_cost
+                best_remotos_count = needed
+
+    if best_solution is None:
+        return [], 0, "No se encontraron remotos compatibles para EXW1"
+
+    return best_solution, best_remotos_count, None
+
+def calculate_ramas(di_needed, do_needed, iol_needed, ai_needed, ao_needed, senales_por_rama):
+    """Calcula ramas necesarias para EX500"""
+    
+    # Calcular señales totales necesarias
+    total_senales = di_needed + do_needed + iol_needed + ai_needed + ao_needed
+    
+    if total_senales <= 0:
+        return [], 0, None
+    
+    # Calcular número de ramas necesarias
+    ramas_necesarias = math.ceil(total_senales / senales_por_rama)
+    
+    # Para EX500, devolvemos un "módulo virtual" que representa las ramas
+    rama_virtual = {
+        'Referencia': 'EX500-RAMA',
+        'Precio': 50.0,  # Precio estimado por rama
+        'Tipo': 'Rama',
+        'Entradas_DI': senales_por_rama,
+        'Salidas_DO': 0,
+        'IO_Link_Ports': 0,
+        'Analog_In': 0,
+        'Analog_Out': 0
+    }
+    
+    return [(rama_virtual, ramas_necesarias)], ramas_necesarias, None
+
+def calculate_traditional_modules(fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed):
+    """Lógica original para familias tradicionales con módulos"""
+    
+    def calculate_module_priority(mod):
+        try:
+            priority = 0
+            polaridad = safe_get(mod, 'Polaridad', '')
+            if str(polaridad).upper() == 'PNP':
+                priority += 0
+            else:
+                priority += 1000
+            
+            precio = safe_get(mod, 'Precio', 1000)
+            if precio is None or pd.isna(precio):
+                precio = 1000
+            
+            priority += float(precio)
             return priority
         except Exception as e:
             print(f"Error calculando prioridad: {e}")
-            return 2000  # Prioridad alta por defecto en caso de error
+            return 2000
 
     all_mods = fam_df.copy()
     all_mods['priority'] = all_mods.apply(calculate_module_priority, axis=1)
@@ -555,19 +708,23 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
 
     for fam in familias_disponibles:
         fam_df = df[df["Familia"] == fam]
-        max_mods = familias_info.get(fam, {}).get("max_modulos", 9)
+        
+        # OBTENER INFORMACIÓN COMPLETA DE LA FAMILIA
+        familia_info = familias_info.get(fam, {})
+        max_mods = familia_info.get("max_modulos", 9)
+        max_remotos = familia_info.get("max_remotos", 0)
+        senales_por_rama = familia_info.get("senales_por_rama", 0)
 
         rejection_reason = None
 
         # Buscar cabecera según protocolo
         cabecera = None
-        for c in familias_info.get(fam, {}).get("cabeceras", []):
+        for c in familia_info.get("cabeceras", []):
             if c["protocolo"].strip().lower() == selected_protocol.strip().lower():
                 cabecera = c
                 break
 
         if not cabecera:
-            # Si no hay cabecera con ese protocolo, descartamos esta familia
             rejected_families.append({
                 "Familia": fam,
                 "Razon": f"No disponible para protocolo {selected_protocol}",
@@ -579,7 +736,7 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
         base_price = cabecera["precio"]
         base_ref   = cabecera["referencia"]
 
-        # Calcular módulos necesarios para cada zona
+        # Calcular módulos/remotos/ramas necesarios para cada zona
         zone_modules = []
         total_modules_needed = 0
         wireless_modules = []
@@ -593,9 +750,9 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
             ai_needed = zone['analog_inputs']
             ao_needed = zone['analog_outputs']
 
-            # Calcular módulos para esta zona
+            # AQUÍ ESTÁ EL CAMBIO PRINCIPAL - PASAR INFORMACIÓN DE FAMILIA
             zone_solution, zone_modules_count, zone_error = calculate_zone_modules(
-                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed
+                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed, familia_info, fam
             )
 
             if zone_error:
@@ -634,6 +791,31 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
             })
             continue
 
+        # VERIFICAR LÍMITES SEGÚN TIPO DE FAMILIA
+        limite_excedido = False
+        limite_descripcion = ""
+        
+        if max_remotos > 0:  # EXW1 - límite por remotos
+            if total_modules_needed > max_remotos:
+                limite_excedido = True
+                limite_descripcion = f"remotos ({total_modules_needed} > {max_remotos})"
+        elif senales_por_rama > 0:  # EX500 - límite por ramas (implícito en el cálculo)
+            # Para EX500 el límite se maneja dentro de calculate_ramas
+            pass
+        else:  # Familias tradicionales - límite por módulos
+            if total_modules_needed > max_mods:
+                limite_excedido = True
+                limite_descripcion = f"módulos ({total_modules_needed} > {max_mods})"
+
+        if limite_excedido:
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": f"Excede el límite de {limite_descripcion}",
+                "Modulos_necesarios": total_modules_needed,
+                "Limite_familia": max_mods if max_remotos == 0 else max_remotos
+            })
+            continue
+
         # Wireless: añadir cabecera maestra
         if has_wireless_zones:
             wireless_master_modules = 1
@@ -641,29 +823,26 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
         else:
             wireless_master_modules = 0
 
-        # Verificar límite de módulos
-        if total_modules_needed > max_mods:
-            rejection_reason = f"Excede el límite de módulos ({total_modules_needed} > {max_mods})"
-            rejected_families.append({
-                "Familia": fam,
-                "Razon": rejection_reason,
-                "Modulos_necesarios": total_modules_needed,
-                "Limite_familia": max_mods
-            })
-            continue
-
         # Calcular precio total y componentes
         if has_wireless_zones:
-            wireless_master_ref = f"{fam}-WIRELESS-MASTER"
-            wireless_master_price = 300.0
+            # PARA EXW1: Una cabecera maestra + los remotos reales
+            wireless_master_ref = f"{fam}-GATEWAY"  # Cambiar nombre
+            wireless_master_price = base_price  # Usar precio de cabecera real
             price = wireless_master_price
-            components = [(wireless_master_ref, 1)]
+            components = [(base_ref, 1)]  # Usar referencia real de cabecera, no ficticia
         else:
-            num_headers_needed = req['num_zones']
+            # PARA EX500 Y OTRAS FAMILIAS
+            if senales_por_rama > 0 or max_remotos > 0:
+                # Una sola cabecera para toda la instalación
+                num_headers_needed = 1
+            else:
+                # Familias tradicionales: una cabecera por zona
+                num_headers_needed = req['num_zones']
+            
             price = base_price * num_headers_needed
             components = [(base_ref, num_headers_needed)]
 
-        # Agregar módulos normales
+        # Agregar módulos/remotos/ramas normales
         module_totals = {}
         for zone_data in zone_modules:
             for mod, qty in zone_data['modules']:
@@ -710,7 +889,8 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
             "Modulos_totales": total_modules_needed,
             "Distribucion_zonas": zone_modules,
             "Wireless_modules": wireless_components,
-            "Has_wireless": has_wireless_zones
+            "Has_wireless": has_wireless_zones,
+            "Tipo_familia": "Remotos" if max_remotos > 0 else ("Ramas" if senales_por_rama > 0 else "Módulos")
         })
 
     solutions.sort(key=lambda s: s["Precio_total"])
