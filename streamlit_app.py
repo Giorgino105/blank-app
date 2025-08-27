@@ -15,6 +15,27 @@ import subprocess
 import threading
 import time
 
+CABLES_DB = [
+# === EJEMPLOS PRE-CARGADOS (ajusta/añade los tuyos) ===
+# Comunicación
+{"ref": "EX9-AC020EN-PSRJ", "families": ["EX600", "EXW1", "EX500"], "protocols": ["ETHERNET/IP", "ETHERCAT", "PROFINET"], "kind": "COM", "end_code": "PSRJ", "price": 85.69},
+{"ref": "EX9-AC02EN-PSPS", "families": ["EX600", "EXW1", "EX260"], "protocols": ["ETHERNET/IP", "ETHERCAT", "PROFINET"], "kind": "COM", "end_code": "PSPS", "price": 74.34},
+{"ref": "EX9-AC005-SSPS", "families": ["EX600", "EX260", "EXW1", "EX500"], "protocols": ["IO-LINK"], "kind": "COM", "end_code": "SSPS", "price": 44.48},
+
+
+# Alimentación
+{"ref": "PCA-141600", "families": ["EX500"], "protocols": ["ETHERNET/IP"], "kind": "ALIM", "end_code": "N/A", "price": 42.22},
+{"ref": "PCA-1558810", "families": ["EX500", "EX600", "EXW1"], "protocols": ["PROFINET"], "kind": "ALIM", "end_code": "N/A", "price": 69.52},
+{"ref": "EX500-AP050-S", "families": ["EX260"], "protocols": ["ANY"], "kind": "ALIM", "end_code": "N/A", "price": 28.63},
+
+
+# Derivación (EX500)
+{"ref": "EX500-AC030-SSPS", "families": ["EX500"], "protocols": ["ANY"], "kind": "DERIV", "end_code": "SSPS", "price": 38.18},
+
+
+# === FIN DE EJEMPLOS ===
+]
+
 # Configuración de autenticación
 VALID_PASSWORDS = {
     "JR": "admin",
@@ -251,6 +272,32 @@ def process_module_data(df):
     df = df.reset_index(drop=True)
 
     return df
+
+
+    """Formatea un resumen de los cables para mostrar"""
+    summary = []
+    for cable_req in cables_needed:
+        cable = cable_req["cable"]
+        quantity = cable_req["quantity"]
+        description = cable_req["description"]
+        
+        # Determinar tipo de cable
+        tipo_cable = {
+            "COM": "Comunicación",
+            "ALIM": "Alimentación", 
+            "DERIV": "Derivación"
+        }.get(cable["kind"], cable["kind"])
+        
+        summary.append({
+            "referencia": cable["ref"],
+            "tipo": tipo_cable,
+            "cantidad": quantity,
+            "precio_unitario": cable["price"],
+            "precio_total": cable["price"] * quantity,
+            "descripcion": description
+        })
+    
+    return summary
 
 def filter_families_by_protocol(df, familias_info, fam_protocols, selected_protocol):
     """Filtra las familias según el protocolo seleccionado"""
@@ -700,6 +747,392 @@ def calculate_traditional_modules(fam_df, di_needed, do_needed, iol_needed, ai_n
 
     return best_solution, best_modules_count, None
 
+# Función corregida para calcular cables necesarios
+def calculate_cables_needed(familia, protocol, num_zones, num_remotos=0, total_modules=0):
+    """
+    Calcula los cables necesarios según la familia y configuración
+    Parámetro adicional: total_modules para EXW1
+    """
+    cables_needed = []
+    
+    # Buscar cables por tipo para la familia
+    com_cable = None
+    alim_cable = None
+    deriv_cable = None
+    
+    for cable in CABLES_DB:
+        if familia in cable["families"]:
+            if cable["kind"] == "COM" and com_cable is None:
+                com_cable = cable
+            elif cable["kind"] == "ALIM" and alim_cable is None:
+                alim_cable = cable
+            elif cable["kind"] == "DERIV" and deriv_cable is None:
+                deriv_cable = cable
+    
+    if familia in ["EX600", "EX260"]:
+        if com_cable:
+            cables_needed.append({
+                "cable": com_cable,
+                "quantity": num_zones,
+                "description": f"Cable comunicación para {num_zones} cabecera(s)"
+            })
+        if alim_cable:
+            cables_needed.append({
+                "cable": alim_cable,
+                "quantity": num_zones,
+                "description": f"Cable alimentación para {num_zones} cabecera(s)"
+            })
+    
+    elif familia == "EX500":
+        if com_cable:
+            cables_needed.append({
+                "cable": com_cable,
+                "quantity": 1,
+                "description": "Cable comunicación para gateway EX500"
+            })
+        if alim_cable:
+            cables_needed.append({
+                "cable": alim_cable,
+                "quantity": 1,
+                "description": "Cable alimentación para gateway EX500"
+            })
+        if deriv_cable:
+            cables_needed.append({
+                "cable": deriv_cable,
+                "quantity": num_zones,
+                "description": f"Cable derivación para {num_zones} zona(s)"
+            })
+    
+    elif familia == "EXW1":
+        if com_cable:
+            cables_needed.append({
+                "cable": com_cable,
+                "quantity": 1,
+                "description": "Cable comunicación para maestro EXW1"
+            })
+        if alim_cable:
+            # Para EXW1: 1 maestro + total de módulos remotos
+            total_alim_needed = 1 + total_modules  # 1 maestro + todos los módulos como remotos
+            cables_needed.append({
+                "cable": alim_cable,
+                "quantity": total_alim_needed,
+                "description": f"Cable alimentación para maestro + {total_modules} remoto(s)"
+            })
+    
+    return cables_needed
+
+# Función simplificada para debug temporal
+def calculate_cables_needed_simple(familia, protocol, num_zones, num_remotos=0):
+    """Versión simplificada para debug"""
+    cables_needed = []
+    
+    # Buscar cualquier cable COM para la familia
+    com_cable = None
+    alim_cable = None
+    deriv_cable = None
+    
+    for cable in CABLES_DB:
+        if familia in cable["families"]:
+            if cable["kind"] == "COM" and com_cable is None:
+                com_cable = cable
+            elif cable["kind"] == "ALIM" and alim_cable is None:
+                alim_cable = cable
+            elif cable["kind"] == "DERIV" and deriv_cable is None:
+                deriv_cable = cable
+    
+    # Aplicar lógica según familia
+    if familia in ["EX600", "EX260"]:
+        if com_cable:
+            cables_needed.append({
+                "cable": com_cable,
+                "quantity": num_zones,
+                "description": f"Cable comunicación para {num_zones} cabecera(s)"
+            })
+        if alim_cable:
+            cables_needed.append({
+                "cable": alim_cable,
+                "quantity": num_zones,
+                "description": f"Cable alimentación para {num_zones} cabecera(s)"
+            })
+    
+    elif familia == "EX500":
+        if com_cable:
+            cables_needed.append({
+                "cable": com_cable,
+                "quantity": 1,
+                "description": "Cable comunicación para gateway EX500"
+            })
+        if alim_cable:
+            cables_needed.append({
+                "cable": alim_cable,
+                "quantity": 1,
+                "description": "Cable alimentación para gateway EX500"
+            })
+        if deriv_cable:
+            cables_needed.append({
+                "cable": deriv_cable,
+                "quantity": num_zones,
+                "description": f"Cable derivación para {num_zones} zona(s)"
+            })
+    
+    elif familia == "EXW1":
+        if com_cable:
+            cables_needed.append({
+                "cable": com_cable,
+                "quantity": 1,
+                "description": "Cable comunicación para maestro EXW1"
+            })
+        if alim_cable:
+            total_alim_needed = 1 + num_remotos
+            cables_needed.append({
+                "cable": alim_cable,
+                "quantity": total_alim_needed,
+                "description": f"Cable alimentación para maestro + {num_remotos} remoto(s)"
+            })
+    
+    return cables_needed
+
+
+def format_cables_summary(cables_needed):
+    """Formatea un resumen de los cables para mostrar"""
+    if not cables_needed:
+        return []
+        
+    summary = []
+    for cable_req in cables_needed:
+        cable = cable_req["cable"]
+        quantity = cable_req["quantity"]
+        description = cable_req["description"]
+        
+        # Determinar tipo de cable
+        tipo_cable = {
+            "COM": "Comunicación",
+            "ALIM": "Alimentación", 
+            "DERIV": "Derivación"
+        }.get(cable["kind"], cable["kind"])
+        
+        summary.append({
+            "referencia": cable["ref"],
+            "tipo": tipo_cable,
+            "cantidad": quantity,
+            "precio_unitario": cable["price"],
+            "precio_total": cable["price"] * quantity,
+            "descripcion": description
+        })
+    
+    return summary
+
+def enumerate_solutions_with_cables(req, df, familias_info, selected_protocol):
+    """Enumera todas las soluciones posibles incluyendo cables necesarios"""
+    familias_disponibles = df["Familia"].unique()
+    solutions = []
+    rejected_families = []
+
+    for fam in familias_disponibles:
+        fam_df = df[df["Familia"] == fam]
+        
+        # OBTENER INFORMACIÓN COMPLETA DE LA FAMILIA
+        familia_info = familias_info.get(fam, {})
+        max_mods = familia_info.get("max_modulos", 9)
+        max_remotos = familia_info.get("max_remotos", 0)
+        senales_por_rama = familia_info.get("senales_por_rama", 0)
+
+        rejection_reason = None
+
+        # Buscar cabecera según protocolo
+        cabecera = None
+        for c in familia_info.get("cabeceras", []):
+            if c["protocolo"].strip().lower() == selected_protocol.strip().lower():
+                cabecera = c
+                break
+
+        if not cabecera:
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": f"No disponible para protocolo {selected_protocol}",
+                "Modulos_necesarios": 0,
+                "Limite_familia": max_mods
+            })
+            continue
+
+        base_price = cabecera["precio"]
+        base_ref   = cabecera["referencia"]
+
+        # Calcular módulos/remotos/ramas necesarios para cada zona
+        zone_modules = []
+        total_modules_needed = 0
+        wireless_modules = []
+        has_wireless_zones = False
+        total_remotos = 0  # Para contar remotos en EXW1
+
+        for zone in req['zones']:
+            zone_id = zone['zone_id']
+            di_needed = zone['digital_inputs']
+            do_needed = zone['digital_outputs']
+            iol_needed = zone['io_link_sensors']
+            ai_needed = zone['analog_inputs']
+            ao_needed = zone['analog_outputs']
+
+            zone_solution, zone_modules_count, zone_error = calculate_zone_modules(
+                fam_df, di_needed, do_needed, iol_needed, ai_needed, ao_needed, familia_info, fam
+            )
+
+            if zone_error:
+                rejection_reason = f"Zona {zone_id}: {zone_error}"
+                break
+
+            # Separar wireless de normales y contar remotos
+            zone_normal_modules = []
+            zone_wireless_modules = []
+            
+            for mod, qty in zone_solution:
+                ref = safe_get(mod, "Referencia", "")
+
+                if str(ref).startswith("EX500") or str(ref).startswith("EXW1") or str(ref).endswith("RAMA") or str(ref).endswith("GATEWAY"):
+                    zone_normal_modules.append((mod, qty))
+                elif safe_get(mod, "Wireless", False):
+                    has_wireless_zones = True
+                    zone_wireless_modules.append((mod, qty, zone_id))
+                    wireless_modules.append((mod, qty, zone_id))
+                    total_remotos += qty  # Contar remotos para EXW1
+                else:
+                    zone_normal_modules.append((mod, qty))
+
+            zone_modules.append({
+                'zone_id': zone_id,
+                'modules': zone_normal_modules,
+                'wireless_modules': zone_wireless_modules,
+                'modules_count': (
+                    sum(qty for mod, qty in zone_normal_modules) +
+                    sum(qty for mod, qty, _ in zone_wireless_modules)
+                )
+            })
+            total_modules_needed += sum(qty for mod, qty in zone_normal_modules)
+
+        if rejection_reason:
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": rejection_reason,
+                "Modulos_necesarios": total_modules_needed,
+                "Limite_familia": max_mods
+            })
+            continue
+
+        # VERIFICAR LÍMITES SEGÚN TIPO DE FAMILIA
+        limite_excedido = False
+        limite_descripcion = ""
+        
+        if max_remotos > 0:  # EXW1 - límite por remotos
+            if total_modules_needed > max_remotos:
+                limite_excedido = True
+                limite_descripcion = f"remotos ({total_modules_needed} > {max_remotos})"
+        elif senales_por_rama > 0:  # EX500 - límite por ramas
+            pass
+        else:  # Familias tradicionales - límite por módulos
+            if total_modules_needed > max_mods:
+                limite_excedido = True
+                limite_descripcion = f"módulos ({total_modules_needed} > {max_mods})"
+
+        if limite_excedido:
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": f"Excede el límite de {limite_descripcion}",
+                "Modulos_necesarios": total_modules_needed,
+                "Limite_familia": max_mods if max_remotos == 0 else max_remotos
+            })
+            continue
+
+        # CALCULAR CABLES NECESARIOS
+        # CALCULAR CABLES NECESARIOS
+        cables_needed = calculate_cables_needed(fam, selected_protocol, req['num_zones'], total_remotos, total_modules_needed)
+        cables_summary = format_cables_summary(cables_needed)
+        cables_total_price = sum(item["precio_total"] for item in cables_summary)
+
+        # Wireless: añadir cabecera maestra
+        if has_wireless_zones:
+            wireless_master_modules = 1
+            total_modules_needed += wireless_master_modules
+        else:
+            wireless_master_modules = 0
+
+        # Calcular precio total y componentes (INCLUYENDO CABLES)
+        if has_wireless_zones:
+            wireless_master_ref = f"{fam}-GATEWAY"
+            wireless_master_price = base_price
+            price = wireless_master_price
+            components = [(base_ref, 1)]
+        else:
+            if senales_por_rama > 0 or max_remotos > 0:
+                num_headers_needed = 1
+            else:
+                num_headers_needed = req['num_zones']
+            
+            price = base_price * num_headers_needed
+            components = [(base_ref, num_headers_needed)]
+
+        # Agregar módulos/remotos/ramas normales
+        module_totals = {}
+        for zone_data in zone_modules:
+            for mod, qty in zone_data['modules']:
+                ref = safe_get(mod, 'Referencia')
+                if ref in module_totals:
+                    module_totals[ref]['quantity'] += qty
+                else:
+                    module_totals[ref] = {
+                        'module': mod,
+                        'quantity': qty
+                    }
+
+        # Agregar wireless
+        wireless_components = {}
+        for mod, qty, zone_id in wireless_modules:
+            ref = safe_get(mod, 'Referencia')
+            if ref in wireless_components:
+                wireless_components[ref]['quantity'] += qty
+                wireless_components[ref]['zones'].append(zone_id)
+            else:
+                wireless_components[ref] = {
+                    'module': mod,
+                    'quantity': qty,
+                    'zones': [zone_id]
+                }
+
+        # Sumar precios de módulos
+        for ref, data in module_totals.items():
+            mod = data['module']
+            qty = data['quantity']
+            components.append((ref, qty))
+            price += safe_get(mod, 'Precio') * qty
+
+        for ref, data in wireless_components.items():
+            mod = data['module']
+            qty = data['quantity']
+            components.append((ref, qty))
+            price += safe_get(mod, 'Precio') * qty
+
+        # AÑADIR CABLES A COMPONENTES Y PRECIO
+        for cable_item in cables_summary:
+            components.append((cable_item["referencia"], cable_item["cantidad"]))
+        
+        price += cables_total_price
+
+        solutions.append({
+            "Familia": fam,
+            "Precio_total": round(price, 2),
+            "Precio_modulos": round(price - cables_total_price, 2),
+            "Precio_cables": round(cables_total_price, 2),
+            "Componentes": components,
+            "Cables_detalle": cables_summary,
+            "Modulos_totales": total_modules_needed,
+            "Distribucion_zonas": zone_modules,
+            "Wireless_modules": wireless_components,
+            "Has_wireless": has_wireless_zones,
+            "Tipo_familia": "Remotos" if max_remotos > 0 else ("Ramas" if senales_por_rama > 0 else "Módulos")
+        })
+
+    solutions.sort(key=lambda s: s["Precio_total"])
+    return solutions, rejected_families
+
 def enumerate_solutions(req, df, familias_info, selected_protocol):
     """Enumera todas las soluciones posibles para cada familia considerando zonas individuales y el protocolo elegido"""
     familias_disponibles = df["Familia"].unique()
@@ -764,7 +1197,12 @@ def enumerate_solutions(req, df, familias_info, selected_protocol):
             zone_wireless_modules = []
             
             for mod, qty in zone_solution:
-                if safe_get(mod, "Wireless", False):
+                ref = safe_get(mod, "Referencia", "")
+
+                # Si es un módulo "virtual" de EX500 o EXW1 lo tratamos como normal
+                if str(ref).startswith("EX500") or str(ref).startswith("EXW1") or str(ref).endswith("RAMA") or str(ref).endswith("GATEWAY"):
+                    zone_normal_modules.append((mod, qty))
+                elif safe_get(mod, "Wireless", False):
                     has_wireless_zones = True
                     zone_wireless_modules.append((mod, qty, zone_id))
                     wireless_modules.append((mod, qty, zone_id))
@@ -1083,7 +1521,7 @@ def mostrar_configurador():
 
     st.title("🔧 Calculador de Soluciones SMC")
     st.markdown("**Calculador de módulos SMC con configuración por zonas**")
-
+    
     # Subida de archivos
     st.header("1. Cargar Archivos de Configuración")
 
@@ -1271,7 +1709,7 @@ def mostrar_configurador():
 
                 with st.spinner("Calculando soluciones..."):
                     # Enumerar soluciones con protocolo seleccionado
-                    solutions, rejected_families = enumerate_solutions(req, df, familias_info, selected_protocol)
+                    solutions, rejected_families = enumerate_solutions_with_cables(req, df, familias_info, selected_protocol)
 
                     if not solutions:
                         st.error("❌ No se encontraron soluciones válidas")
@@ -1295,6 +1733,8 @@ def mostrar_configurador():
                             st.write("**Información General:**")
                             st.write(f"- Familia: {sol['Familia']}")
                             st.write(f"- Precio Total: {sol['Precio_total']}€")
+                            st.write(f"  - Módulos: {sol['Precio_modulos']}€")
+                            st.write(f"  - Cables: {sol['Precio_cables']}€")
                             st.write(f"- Módulos Totales: {sol['Modulos_totales']}")
                             st.write(f"- Protocolo: {selected_protocol}")
 
@@ -1302,6 +1742,11 @@ def mostrar_configurador():
                             st.write("**Componentes:**")
                             for ref, qty in sol['Componentes']:
                                 st.write(f"- {ref} x{qty}")
+
+                        if sol['Cables_detalle']:
+                            st.write("**Detalle de Cables:**")
+                            cables_df = pd.DataFrame(sol['Cables_detalle'])
+                            st.dataframe(cables_df, hide_index=True)
 
                         # Distribución por zonas si hay más de una
                         if req['num_zones'] > 1:
