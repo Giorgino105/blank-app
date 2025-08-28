@@ -1730,14 +1730,6 @@ def mostrar_configurador():
                     if not solutions:
                         st.error("❌ No se encontraron soluciones válidas")
 
-                        # En la sección de mostrar familias rechazadas
-                    if rejected_families:
-                        st.subheader("Familias descartadas:")
-                        for rejection in rejected_families:
-                            limite_info = ""
-                            if "Distancia_limite" in rejection:
-                                limite_info = f" (límite: {rejection['Distancia_limite']}m)"
-                            st.write(f"- **{rejection['Familia']}**: {rejection['Razon']}{limite_info}")
 
                 # Mostrar resultados
                 st.header("6. Soluciones Encontradas")
