@@ -93,7 +93,7 @@ def load_family_data(file) -> dict:
     row_protocol  = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("protocol")][0]
     row_precio    = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("precio")][0]
     row_maxmods   = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("max_modulos")][0]
-    
+    row_distancia = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("distancia")][0]
     # NUEVAS FILAS PARA EXW1 Y EX500
     try:
         row_maxremotos = df.index[df.iloc[:, 0].astype(str).str.lower().str.contains("max_remotos")][0]
@@ -134,6 +134,11 @@ def load_family_data(file) -> dict:
             senales_por_rama = int(df.iloc[row_senales_rama, col]) if row_senales_rama is not None else 0
         except:
             senales_por_rama = 0
+
+        try:
+            distancia_admitida = float(df.iloc[row_distancia, col]) if row_distancia is not None else float('inf')
+        except:
+            distancia_admitida = float('inf')
 
         if familia and familia.lower() not in ["nan", "none", ""]:
             if familia not in familias_data:
@@ -936,9 +941,19 @@ def enumerate_solutions_with_cables(req, df, familias_info, selected_protocol):
         max_mods = familia_info.get("max_modulos", 9)
         max_remotos = familia_info.get("max_remotos", 0)
         senales_por_rama = familia_info.get("senales_por_rama", 0)
+        distancia_admitida = familia_info.get("distancia_admitida", float('inf'))
 
         rejection_reason = None
-
+        
+        if req.get('distance_m', 0) > distancia_admitida:
+            rejected_families.append({
+                "Familia": fam,
+                "Razon": f"Distancia excede el límite ({req['distance_m']}m > {distancia_admitida}m)",
+                "Modulos_necesarios": 0,
+                "Limite_familia": max_mods if max_remotos == 0 else max_remotos,
+                "Distancia_limite": distancia_admitida
+            })
+            continue
         # Buscar cabecera según protocolo
         cabecera = None
         for c in familia_info.get("cabeceras", []):
@@ -1014,8 +1029,8 @@ def enumerate_solutions_with_cables(req, df, familias_info, selected_protocol):
                 "Familia": fam,
                 "Razon": rejection_reason,
                 "Modulos_necesarios": total_modules_needed,
-                "Limite_familia": max_mods
-            })
+                "Limite_familia": max_mods,
+                "Distancia_limite": distancia_admitida})
             continue
 
         # VERIFICAR LÍMITES SEGÚN TIPO DE FAMILIA
@@ -1127,7 +1142,8 @@ def enumerate_solutions_with_cables(req, df, familias_info, selected_protocol):
             "Distribucion_zonas": zone_modules,
             "Wireless_modules": wireless_components,
             "Has_wireless": has_wireless_zones,
-            "Tipo_familia": "Remotos" if max_remotos > 0 else ("Ramas" if senales_por_rama > 0 else "Módulos")
+            "Tipo_familia": "Remotos" if max_remotos > 0 else ("Ramas" if senales_por_rama > 0 else "Módulos"),
+            "Distancia_admitida": distancia_admitida
         })
 
     solutions.sort(key=lambda s: s["Precio_total"])
@@ -1714,11 +1730,14 @@ def mostrar_configurador():
                     if not solutions:
                         st.error("❌ No se encontraron soluciones válidas")
 
-                        if rejected_families:
-                            st.subheader("Familias descartadas:")
-                            for rejection in rejected_families:
-                                st.write(f"- **{rejection['Familia']}**: {rejection['Razon']}")
-                        return
+                        # En la sección de mostrar familias rechazadas
+                    if rejected_families:
+                        st.subheader("Familias descartadas:")
+                        for rejection in rejected_families:
+                            limite_info = ""
+                            if "Distancia_limite" in rejection:
+                                limite_info = f" (límite: {rejection['Distancia_limite']}m)"
+                            st.write(f"- **{rejection['Familia']}**: {rejection['Razon']}{limite_info}")
 
                 # Mostrar resultados
                 st.header("6. Soluciones Encontradas")
