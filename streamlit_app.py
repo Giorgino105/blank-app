@@ -1556,7 +1556,7 @@ def main():
     if st.session_state.logout_triggered:
         st.session_state.logout_triggered = False
         st.rerun()
-    show_footer()
+    
 
 def mostrar_configurador():
 
