@@ -752,7 +752,6 @@ def calculate_traditional_modules(fam_df, di_needed, do_needed, iol_needed, ai_n
 
     return best_solution, best_modules_count, None
 
-# Función corregida para calcular cables necesarios
 def calculate_cables_needed(familia, protocol, num_zones, num_remotos=0, total_modules=0):
     """
     Calcula los cables necesarios según la familia y configuración
@@ -826,7 +825,6 @@ def calculate_cables_needed(familia, protocol, num_zones, num_remotos=0, total_m
     
     return cables_needed
 
-# Función simplificada para debug temporal
 def calculate_cables_needed_simple(familia, protocol, num_zones, num_remotos=0):
     """Versión simplificada para debug"""
     cables_needed = []
@@ -896,7 +894,6 @@ def calculate_cables_needed_simple(familia, protocol, num_zones, num_remotos=0):
             })
     
     return cables_needed
-
 
 def format_cables_summary(cables_needed):
     """Formatea un resumen de los cables para mostrar"""
@@ -1438,6 +1435,19 @@ def generate_solution_report(req, solution, protocol):
 
     return "\n".join(report_lines)
 
+def get_counter(file_path="counter.txt"):
+    """Lee el contador actual sin incrementarlo"""
+    import os
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            try:
+                count = int(f.read().strip())
+            except ValueError:
+                count = 0
+    else:
+        count = 0
+    return count
+
 def update_counter(file_path="counter.txt"):
     """Actualiza el contador de visitas"""
     import os
@@ -1455,7 +1465,24 @@ def update_counter(file_path="counter.txt"):
     with open(file_path, "w") as f:
         f.write(str(count))
 
-    return count       
+    return count
+
+def show_footer():
+    """Muestra el pie de página con el contador de visitas"""
+    st.markdown("---")
+    
+    # Obtener el contador actual
+    total_visits = get_counter()
+    
+    # Mostrar el pie de página
+    st.markdown(
+        f"""
+        <div style='text-align: center; color: #666; font-size: 12px; padding: 10px;'>
+            <p>Calculador SMC - Visitas totales: {total_visits}</p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
 def login():
     st.title("🔐 Acceso al Calculador SMC")
@@ -1482,6 +1509,8 @@ def login():
                     st.success(f"¡Bienvenido {username}!")
             else:
                 st.error("Usuario o contraseña incorrectos")
+            show_footer()
+
 
 def main():
     # Inicialización de variables de sesión
@@ -1527,8 +1556,10 @@ def main():
     if st.session_state.logout_triggered:
         st.session_state.logout_triggered = False
         st.rerun()
+    show_footer()
 
 def mostrar_configurador():
+
     if not check_password():
         return
 
@@ -1800,6 +1831,8 @@ def mostrar_configurador():
     else:
         st.info("👆 Por favor, carga ambos archivos (Catálogo de Módulos y Configuración de Familias) para continuar.")
 
+    show_footer()
+
 def mostrar_conversor():
     st.title("🔄 Conversor Fuerza-Par")
 
@@ -1816,6 +1849,7 @@ def mostrar_conversor():
     eta2 = st.number_input("Rendimiento mecánico", value=0.8)
     M2 = (p2 * F2) / (2 * 3.1416 * eta2)
     st.write(f"Par necesario: {M2:.3f} Nm")
+    show_footer()
 
 def calcular_tc(v, a, recorrido, t_est):
     t_acc = v / a
@@ -1842,6 +1876,7 @@ def mostrar_tiempo_ciclo():
     # Calcular TC para esos valores
     tc_especifico = calcular_tc(velocidad, aceleracion, recorrido, t_est)
     st.write(f"### Tiempo de Ciclo calculado: {tc_especifico:.4f} segundos")
+    show_footer()
 
 if __name__ == "__main__":
     main()
