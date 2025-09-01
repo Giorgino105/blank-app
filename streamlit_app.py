@@ -1955,45 +1955,45 @@ def mostrar_tiempo_ciclo():
 
     show_footer()
 
-def generar_perfil(recorrido, velocidad, aceleracion):
+def generar_perfil(recorrido, velocidad_max, aceleracion):  
     """
-    Genera el perfil de movimiento trapezoidal (posición vs tiempo)
+    Genera el perfil de velocidad trapezoidal o triangular (velocidad vs tiempo)
     """
-    # Tiempo para acelerar hasta velocidad máxima
-    t_acc = velocidad / aceleracion
-    d_acc = 0.5 * aceleracion * t_acc**2  # distancia recorrida en aceleración
-    
+    t_acc = velocidad_max / aceleracion
+    d_acc = 0.5 * aceleracion * t_acc**2
+
     if 2 * d_acc >= recorrido:
-        # Caso triangular (no llega a velocidad máxima)
+        # Perfil triangular
         t_acc = np.sqrt(recorrido / aceleracion)
         t_total = 2 * t_acc
-        t = np.linspace(0, t_total, 200)
-        
-        pos = np.zeros_like(t)
+        v_peak = aceleracion * t_acc
+
+        t = np.linspace(0, t_total, 300)
+        vel = np.zeros_like(t)
+
         for i, ti in enumerate(t):
             if ti <= t_acc:
-                pos[i] = 0.5 * aceleracion * ti**2
+                vel[i] = aceleracion * ti
             else:
-                td = ti - t_acc
-                pos[i] = (recorrido / 2) + (velocidad * td - 0.5 * aceleracion * td**2)
+                vel[i] = v_peak - aceleracion * (ti - t_acc)
     else:
-        # Caso trapezoidal
+        # Perfil trapezoidal
         d_const = recorrido - 2 * d_acc
-        t_const = d_const / velocidad
+        t_const = d_const / velocidad_max
         t_total = 2 * t_acc + t_const
-        
         t = np.linspace(0, t_total, 300)
-        pos = np.zeros_like(t)
+        vel = np.zeros_like(t)
+
         for i, ti in enumerate(t):
-            if ti <= t_acc:  # fase de aceleración
-                pos[i] = 0.5 * aceleracion * ti**2
-            elif ti <= t_acc + t_const:  # fase constante
-                pos[i] = d_acc + velocidad * (ti - t_acc)
-            else:  # fase de deceleración
-                td = ti - (t_acc + t_const)
-                pos[i] = d_acc + d_const + velocidad * td - 0.5 * aceleracion * td**2
-    
-    return t, pos
+            if ti <= t_acc:
+                vel[i] = aceleracion * ti
+            elif ti <= t_acc + t_const:
+                vel[i] = velocidad_max
+            else:
+                vel[i] = velocidad_max - aceleracion * (ti - t_acc - t_const)
+
+    return t, vel
+
 
 
 if __name__ == "__main__":
