@@ -1879,16 +1879,62 @@ def reset_counter(file_path="counter.txt"):
 def mostrar_tiempo_ciclo():
     st.title("⏱️ Tiempo de Ciclo")
 
-    recorrido = st.number_input("Recorrido (mm)", value=1000.0)
-    t_est = st.number_input("Tiempo estabilizado (s)", value=0.05)
+    # Parámetros comunes
+    st.subheader("Parámetros Comunes")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        recorrido = st.number_input("Recorrido (mm)", value=1000.0)
+    with col2:
+        t_est = st.number_input("Tiempo estabilizado (s)", value=0.05)
 
-    # Inputs para valores específicos
-    velocidad = st.number_input("Velocidad (mm/s)", value=2000.0)
-    aceleracion = st.number_input("Aceleración (mm/s²)", value=3000.0)
+    st.markdown("---")
+    st.subheader("Cálculos de Tiempo de Ciclo")
 
-    # Calcular TC para esos valores
-    tc_especifico = calcular_tc(velocidad, aceleracion, recorrido, t_est)
-    st.write(f"### Tiempo de Ciclo calculado: {tc_especifico:.4f} segundos")
+    # Crear 3 columnas para diferentes cálculos
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("**Cálculo 1**")
+        velocidad1 = st.number_input("Velocidad (mm/s)", value=1500.0, key="v1")
+        aceleracion1 = st.number_input("Aceleración (mm/s²)", value=2500.0, key="a1")
+        tc1 = calcular_tc(velocidad1, aceleracion1, recorrido, t_est)
+        st.metric("Tiempo de Ciclo", f"{tc1:.4f} s")
+
+    with col2:
+        st.markdown("**Cálculo 2**")
+        velocidad2 = st.number_input("Velocidad (mm/s)", value=2000.0, key="v2")
+        aceleracion2 = st.number_input("Aceleración (mm/s²)", value=3000.0, key="a2")
+        tc2 = calcular_tc(velocidad2, aceleracion2, recorrido, t_est)
+        st.metric("Tiempo de Ciclo", f"{tc2:.4f} s")
+
+    with col3:
+        st.markdown("**Cálculo 3**")
+        velocidad3 = st.number_input("Velocidad (mm/s)", value=2500.0, key="v3")
+        aceleracion3 = st.number_input("Aceleración (mm/s²)", value=4000.0, key="a3")
+        tc3 = calcular_tc(velocidad3, aceleracion3, recorrido, t_est)
+        st.metric("Tiempo de Ciclo", f"{tc3:.4f} s")
+
+    # Mostrar comparación
+    st.markdown("---")
+    st.subheader("Comparación de Resultados")
+    
+    # Crear DataFrame para mostrar comparación
+    comparison_data = {
+        "Cálculo": ["Cálculo 1", "Cálculo 2", "Cálculo 3"],
+        "Velocidad (mm/s)": [velocidad1, velocidad2, velocidad3],
+        "Aceleración (mm/s²)": [aceleracion1, aceleracion2, aceleracion3],
+        "Tiempo de Ciclo (s)": [f"{tc1:.4f}", f"{tc2:.4f}", f"{tc3:.4f}"]
+    }
+    
+    df_comparison = pd.DataFrame(comparison_data)
+    st.dataframe(df_comparison, hide_index=True)
+    
+    # Mostrar el mejor resultado
+    tiempos = [tc1, tc2, tc3]
+    mejor_idx = tiempos.index(min(tiempos))
+    st.success(f"🏆 Mejor resultado: {comparison_data['Cálculo'][mejor_idx]} con {min(tiempos):.4f} segundos")
+    
     show_footer()
 
 if __name__ == "__main__":
