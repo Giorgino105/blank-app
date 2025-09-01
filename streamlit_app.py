@@ -1544,6 +1544,13 @@ def main():
         st.session_state.current_user = ""
         st.session_state.logout_triggered = True
 
+    st.sidebar.markdown("---")
+    if st.session_state.current_user in ["JR"]:  # Solo ciertos usuarios
+        if st.sidebar.button("🔄 Resetear Contador", key="reset_counter"):
+            reset_counter()
+            st.sidebar.success("Contador reseteado a 0")
+            st.rerun()
+
     # Mostrar la sección seleccionada
     if menu == "Configurador":
         mostrar_configurador()
@@ -1862,6 +1869,12 @@ def calcular_tc(v, a, recorrido, t_est):
         t_const = d_const / v
         tc = 2 * t_acc + t_const + t_est
     return tc
+
+def reset_counter(file_path="counter.txt"):
+    """Resetea el contador a 0"""
+    with open(file_path, "w") as f:
+        f.write("0")
+    return 0
 
 def mostrar_tiempo_ciclo():
     st.title("⏱️ Tiempo de Ciclo")
