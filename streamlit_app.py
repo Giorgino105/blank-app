@@ -14,6 +14,7 @@ import hashlib
 import subprocess
 import threading
 import time
+import matplotlib.pyplot as plt
 
 CABLES_DB = [
 # === EJEMPLOS PRE-CARGADOS (ajusta/añade los tuyos) ===
@@ -1935,7 +1936,65 @@ def mostrar_tiempo_ciclo():
     mejor_idx = tiempos.index(min(tiempos))
     st.success(f"🏆 Mejor resultado: {comparison_data['Cálculo'][mejor_idx]} con {min(tiempos):.4f} segundos")
     
+    st.markdown("---")
+    st.subheader("📈 Perfiles de Recorrido")
+    
+    fig, ax = plt.subplots()
+    for v, a, label in [(velocidad1, aceleracion1, "Cálculo 1"),
+                        (velocidad2, aceleracion2, "Cálculo 2"),
+                        (velocidad3, aceleracion3, "Cálculo 3")]:
+        t, pos = generar_perfil(recorrido, v, a)
+        ax.plot(t, pos, label=label)
+    
+    ax.set_xlabel("Tiempo (s)")
+    ax.set_ylabel("Recorrido (mm)")
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+    
+
     show_footer()
+
+def generar_perfil(recorrido, velocidad, aceleracion):
+    """
+    Genera el perfil de movimiento trapezoidal (posición vs tiempo)
+    """
+    # Tiempo para acelerar hasta velocidad máxima
+    t_acc = velocidad / aceleracion
+    d_acc = 0.5 * aceleracion * t_acc**2  # distancia recorrida en aceleración
+    
+    if 2 * d_acc >= recorrido:
+        # Caso triangular (no llega a velocidad máxima)
+        t_acc = np.sqrt(recorrido / aceleracion)
+        t_total = 2 * t_acc
+        t = np.linspace(0, t_total, 200)
+        
+        pos = np.zeros_like(t)
+        for i, ti in enumerate(t):
+            if ti <= t_acc:
+                pos[i] = 0.5 * aceleracion * ti**2
+            else:
+                td = ti - t_acc
+                pos[i] = (recorrido / 2) + (velocidad * td - 0.5 * aceleracion * td**2)
+    else:
+        # Caso trapezoidal
+        d_const = recorrido - 2 * d_acc
+        t_const = d_const / velocidad
+        t_total = 2 * t_acc + t_const
+        
+        t = np.linspace(0, t_total, 300)
+        pos = np.zeros_like(t)
+        for i, ti in enumerate(t):
+            if ti <= t_acc:  # fase de aceleración
+                pos[i] = 0.5 * aceleracion * ti**2
+            elif ti <= t_acc + t_const:  # fase constante
+                pos[i] = d_acc + velocidad * (ti - t_acc)
+            else:  # fase de deceleración
+                td = ti - (t_acc + t_const)
+                pos[i] = d_acc + d_const + velocidad * td - 0.5 * aceleracion * td**2
+    
+    return t, pos
+
 
 if __name__ == "__main__":
     main()
